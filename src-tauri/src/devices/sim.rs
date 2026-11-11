@@ -4,11 +4,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use velopopuli_core::demo::{DemoHeart, Exhaustion, FADE_CADENCE, FADE_POWER, REST_BPM};
 use velopopuli_core::devices::{DeviceInfo, DeviceKind, DeviceStatus, Readings, TrainerCommand, Transport};
 
 use super::{Devices, Handle};
 
 pub const DEMO_ID: &str = "sim:demo";
+/// The demo loop's step, in seconds.
+const STEP_S: f64 = 0.25;
+
+/// `VP_DEMO_EXHAUSTED=<watts>` makes the demo rider tire on an ERG target above that many watts,
+/// to try how heart-rate mode handles a fading rider.
+fn exhaustion_from_env() -> Option<Exhaustion> {
+    let watts = std::env::var("VP_DEMO_EXHAUSTED").ok()?.trim().parse::<f64>().ok().filter(|w| w.is_finite() && *w > 0.0)?;
+    crate::diag::event("demo", format!("demo rider tires above {watts:.0} W"));
+    Some(Exhaustion::new(watts))
+}
 
 #[derive(Clone, Copy)]
 struct State {
@@ -62,18 +73,24 @@ impl DemoRider {
 
         let devices = devices.clone();
         std::thread::spawn(move || {
-            let mut hr = 95.0f64;
+            let mut heart = DemoHeart::new(REST_BPM);
+            let mut tired = exhaustion_from_env();
             let mut phase = 0.0f64;
             while !stop.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(250));
-                phase += 0.25;
+                phase += STEP_S;
                 let s = *state.lock().unwrap();
                 // Riders naturally push harder uphill and ease off downhill.
                 let terrain = 1.0 + (s.grade * 5.0).clamp(-0.6, 0.45);
                 let wobble = 1.0 + 0.04 * (phase * 0.9).sin() + 0.03 * (phase * 2.3).sin();
-                let power = (s.erg.unwrap_or(s.target * terrain) * wobble).max(0.0);
-                let cadence = if power > 5.0 { 88.0 - (s.grade * 220.0).clamp(-8.0, 22.0) + 2.0 * (phase * 0.5).sin() } else { 0.0 };
-                hr += (90.0 + power * 0.36 - hr) * 0.008;
+                let mut power = (s.erg.unwrap_or(s.target * terrain) * wobble).max(0.0);
+                let mut cadence = if power > 5.0 { 88.0 - (s.grade * 220.0).clamp(-8.0, 22.0) + 2.0 * (phase * 0.5).sin() } else { 0.0 };
+                // A tired rider's legs give: cadence sags below what heart-rate mode counts as struggling.
+                if tired.as_mut().is_some_and(|e| e.step(STEP_S, s.erg)) && power > 5.0 {
+                    power *= FADE_POWER;
+                    cadence = FADE_CADENCE + 2.0 * (phase * 0.5).sin();
+                }
+                let hr = heart.step(STEP_S, power);
                 devices.report(DEMO_ID, Readings { power: Some(power), cadence: Some(cadence), hr: Some(hr.round()), wheel_speed: None });
             }
         });
