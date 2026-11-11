@@ -6,7 +6,23 @@ import type { Climb } from './core/gpx'
 export interface Settings {
   rider: { name: string; weightKg: number; bikeKg: number; ftp: number; maxHr: number }
   physics: { cda: number; crr: number; maxSpeedKph: number; roadSurfaces: boolean }
-  trainer: { difficulty: number; mode: 'sim' | 'erg'; ergWatts: number; virtualPower: boolean; maxGrade: number; downhill: number; workoutErg: boolean }
+  trainer: {
+    difficulty: number
+    mode: 'sim' | 'erg' | 'hr'
+    ergWatts: number
+    virtualPower: boolean
+    maxGrade: number
+    downhill: number
+    workoutErg: boolean
+    /** Heart-rate mode: the band to hold, in bpm; 0 = from max heart rate (65–75%). */
+    hrLow: number
+    hrHigh: number
+    /** Heart-rate mode: lowest and highest power, in watts; 0 = from FTP (40% / 105%). */
+    hrMinWatts: number
+    hrMaxWatts: number
+    /** Heart-rate mode: the longest warm-up, in minutes. */
+    hrWarmupMin: number
+  }
   units: 'metric' | 'imperial'
   bots: { enabled: boolean; wkg: number[] }
   realTerrain: boolean
@@ -63,7 +79,20 @@ export type Weather = 'clear' | 'cloudy' | 'rain' | 'fog' | 'snow' | 'live'
 export const DEFAULT_SETTINGS: Settings = {
   rider: { name: 'Rider', weightKg: 75, bikeKg: 9, ftp: 200, maxHr: 185 },
   physics: { cda: 0.32, crr: 0.004, maxSpeedKph: 80, roadSurfaces: true },
-  trainer: { difficulty: 0.75, mode: 'sim', ergWatts: 150, virtualPower: false, maxGrade: 0.15, downhill: 0.5, workoutErg: true },
+  trainer: {
+    difficulty: 0.75,
+    mode: 'sim',
+    ergWatts: 150,
+    virtualPower: false,
+    maxGrade: 0.15,
+    downhill: 0.5,
+    workoutErg: true,
+    hrLow: 0,
+    hrHigh: 0,
+    hrMinWatts: 0,
+    hrMaxWatts: 0,
+    hrWarmupMin: 8
+  },
   units: 'metric',
   bots: { enabled: true, wkg: [1.5, 2.2, 3.0] },
   realTerrain: true,
@@ -360,6 +389,26 @@ export interface ClimbResult {
 /** A handlebar-controller press, already narrowed to one action (see `devices/obc.rs`). */
 export type ControllerAction = 'shiftHarder' | 'shiftEasier' | 'harder' | 'easier' | 'skipStep' | 'pause' | 'resume' | 'camera'
 
+/** What heart-rate pacing is doing (see `crates/core/src/hrpace.rs`). */
+export type PaceState = 'warmUp' | 'holding' | 'raising' | 'easing' | 'struggling' | 'noHr'
+export type PaceWarning = 'highAtFloor' | 'lowAtCeiling' | 'nearMaxHr' | 'noHr'
+
+/** Heart-rate pacing, for the HUD (`HrPaceHud` in `session.rs`). */
+export interface HrPaceHud {
+  /** The ERG target sent to the trainer, in whole watts. */
+  watts: number
+  state: PaceState
+  warning: PaceWarning | null
+  /** The band being held, in bpm. */
+  low: number
+  high: number
+  hrSmooth: number | null
+  /** Heart-rate trend, bpm per minute. */
+  trend: number
+  /** Seconds of warm-up still to go; null once it is over. */
+  warmupLeftS: number | null
+}
+
 /** Streamed from the simulation about 20 times a second. */
 export interface RideState {
   distance: number
@@ -403,4 +452,6 @@ export interface RideState {
   segment: SegmentLive | null
   segmentResult: SegmentResult | null
   groupStatus: string | null
+  /** Heart-rate pacing, while the trainer is in heart-rate mode on a ride without a workout. */
+  hrPace: HrPaceHud | null
 }
