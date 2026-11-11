@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::hrpace::PaceConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RiderSettings {
@@ -43,6 +45,8 @@ impl Default for PhysicsSettings {
 pub enum TrainerMode {
     Sim,
     Erg,
+    /// ERG, with the target picked to keep heart rate in a band (see `hrpace`).
+    Hr,
 }
 
 /// How the rider changes gear on the trainer.
@@ -117,13 +121,46 @@ pub struct TrainerSettings {
     pub downhill: f64,
     /// Hold workout targets in ERG mode (otherwise targets are shown and the gradient applies).
     pub workout_erg: bool,
+    /// Heart-rate mode: the band to hold, in bpm; 0 = 65–75 % of the rider's max heart rate.
+    pub hr_low: f64,
+    pub hr_high: f64,
+    /// Heart-rate mode: power limits in watts; 0 = 40 % / 105 % of FTP.
+    pub hr_min_watts: f64,
+    pub hr_max_watts: f64,
+    /// Heart-rate mode: longest warm-up ramp, in minutes.
+    pub hr_warmup_min: f64,
 }
 
 impl Default for TrainerSettings {
     fn default() -> Self {
-        Self { difficulty: 0.75, mode: TrainerMode::Sim, erg_watts: 150.0, virtual_power: false, max_grade: 0.15, downhill: 0.5, workout_erg: true }
+        Self {
+            difficulty: 0.75,
+            mode: TrainerMode::Sim,
+            erg_watts: 150.0,
+            virtual_power: false,
+            max_grade: 0.15,
+            downhill: 0.5,
+            workout_erg: true,
+            hr_low: 0.0,
+            hr_high: 0.0,
+            hr_min_watts: 0.0,
+            hr_max_watts: 0.0,
+            hr_warmup_min: 8.0,
+        }
     }
 }
+
+/// Heart-rate band from max heart rate when none is set.
+const HR_LOW_OF_MAX: f64 = 0.65;
+const HR_HIGH_OF_MAX: f64 = 0.75;
+/// Narrowest band worth holding: heart rate wanders a couple of beats either way.
+const HR_BAND_MIN_BPM: f64 = 4.0;
+/// Power limits from FTP when none are set.
+const HR_MIN_W_OF_FTP: f64 = 0.40;
+const HR_MAX_W_OF_FTP: f64 = 1.05;
+const HR_WARMUP_MAX_MIN: f64 = 30.0;
+/// A max heart rate below this is a typo, not a heart.
+const MAX_HR_PLAUSIBLE: f64 = 100.0;
 
 impl TrainerSettings {
     /// The gradient to send the trainer for a road gradient.
@@ -136,6 +173,29 @@ impl TrainerSettings {
             g = g.clamp(-self.max_grade, self.max_grade);
         }
         g
+    }
+
+    /// Settings for the heart-rate pacer: unset values derived from the rider, and the band
+    /// and power limits put in order (low below high by at least 4 bpm, high no more than max HR).
+    pub fn pace_config(&self, rider: &RiderSettings) -> PaceConfig {
+        let set = |v: f64| (v.is_finite() && v > 0.0).then_some(v);
+        let defaults = RiderSettings::default();
+        let ftp = set(rider.ftp).unwrap_or(defaults.ftp);
+        let max_hr = set(rider.max_hr).filter(|&m| m >= MAX_HR_PLAUSIBLE).unwrap_or(defaults.max_hr);
+        let mut low = set(self.hr_low).unwrap_or((HR_LOW_OF_MAX * max_hr).round());
+        let mut high = set(self.hr_high).unwrap_or((HR_HIGH_OF_MAX * max_hr).round());
+        if low > high {
+            std::mem::swap(&mut low, &mut high);
+        }
+        high = high.min(max_hr);
+        low = low.min(high - HR_BAND_MIN_BPM);
+        let mut min_w = set(self.hr_min_watts).unwrap_or((HR_MIN_W_OF_FTP * ftp).round());
+        let mut max_w = set(self.hr_max_watts).unwrap_or((HR_MAX_W_OF_FTP * ftp).round());
+        if min_w > max_w {
+            std::mem::swap(&mut min_w, &mut max_w);
+        }
+        let warmup_min = if self.hr_warmup_min.is_finite() { self.hr_warmup_min.clamp(0.0, HR_WARMUP_MAX_MIN) } else { TrainerSettings::default().hr_warmup_min };
+        PaceConfig { low, high, min_w, max_w, warmup_s: warmup_min * 60.0, ftp, max_hr }
     }
 }
 
@@ -357,4 +417,71 @@ pub struct RideSummary {
     pub segment_prs: Vec<String>,
     #[serde(default)]
     pub group: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pace(trainer: TrainerSettings) -> PaceConfig {
+        trainer.pace_config(&RiderSettings::default())
+    }
+
+    #[test]
+    fn pace_config_derives_unset_values_from_the_rider() {
+        assert_eq!(pace(Default::default()), PaceConfig { low: 120.0, high: 139.0, min_w: 80.0, max_w: 210.0, warmup_s: 480.0, ftp: 200.0, max_hr: 185.0 });
+    }
+
+    #[test]
+    fn pace_config_uses_values_the_rider_set() {
+        let trainer = TrainerSettings { hr_low: 130.0, hr_high: 140.0, hr_min_watts: 100.0, hr_max_watts: 250.0, hr_warmup_min: 10.0, ..Default::default() };
+        assert_eq!(pace(trainer), PaceConfig { low: 130.0, high: 140.0, min_w: 100.0, max_w: 250.0, warmup_s: 600.0, ftp: 200.0, max_hr: 185.0 });
+    }
+
+    #[test]
+    fn pace_config_puts_the_band_in_order() {
+        let band = |low: f64, high: f64| {
+            let p = pace(TrainerSettings { hr_low: low, hr_high: high, ..Default::default() });
+            (p.low, p.high)
+        };
+        assert_eq!(band(150.0, 140.0), (140.0, 150.0));
+        assert_eq!(band(180.0, 200.0), (180.0, 185.0));
+        assert_eq!(band(183.0, 200.0), (181.0, 185.0));
+        assert_eq!(band(140.0, 142.0), (138.0, 142.0));
+    }
+
+    #[test]
+    fn pace_config_swaps_inverted_power_limits() {
+        let p = pace(TrainerSettings { hr_min_watts: 300.0, hr_max_watts: 100.0, ..Default::default() });
+        assert_eq!((p.min_w, p.max_w), (100.0, 300.0));
+    }
+
+    #[test]
+    fn pace_config_falls_back_for_an_unset_rider() {
+        let rider = RiderSettings { ftp: 0.0, max_hr: 60.0, ..Default::default() };
+        assert_eq!(TrainerSettings::default().pace_config(&rider), pace(Default::default()));
+    }
+
+    #[test]
+    fn pace_config_limits_the_warm_up() {
+        let warm = |min: f64| pace(TrainerSettings { hr_warmup_min: min, ..Default::default() }).warmup_s;
+        assert_eq!(warm(0.0), 0.0);
+        assert_eq!(warm(90.0), 1800.0);
+        assert_eq!(warm(-5.0), 0.0);
+    }
+
+    #[test]
+    fn heart_rate_mode_round_trips_and_old_settings_still_load() {
+        let json = serde_json::to_string(&TrainerMode::Hr).unwrap();
+        assert_eq!(json, "\"hr\"");
+        assert_eq!(serde_json::from_str::<TrainerMode>(&json).unwrap(), TrainerMode::Hr);
+        let old: TrainerSettings = serde_json::from_str(r#"{"difficulty":0.5,"mode":"erg"}"#).unwrap();
+        assert_eq!(old.mode, TrainerMode::Erg);
+        assert_eq!(old.difficulty, 0.5);
+        assert_eq!(old.hr_low, 0.0);
+        assert_eq!(old.hr_warmup_min, 8.0);
+        let hr: TrainerSettings = serde_json::from_str(r#"{"mode":"hr","hrLow":130}"#).unwrap();
+        assert_eq!(hr.mode, TrainerMode::Hr);
+        assert_eq!(hr.hr_low, 130.0);
+    }
 }
