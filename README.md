@@ -16,6 +16,7 @@ Free and open source ([GPLv3](LICENSE)) for **Windows, macOS and Linux**. Writte
 - **Mountain-bike trails.** Where the route follows an unpaved path, a bridleway, a walking trail or a trail graded for mountain bikes (OpenStreetMap's `mtb:scale`, S0–S6, or estimated from the hiking grade), you ride a narrow earth singletrack with no barriers, the HUD shows the grade, and the harder the grade the heavier it rolls — on screen and on the trainer.
 - **Find a route in the app.** Search for a place, click waypoints on the map and get a route along bike-friendly roads with real elevation (BRouter), or pick one of eight famous climbs (Alpe d'Huez, Mont Ventoux, Stelvio, Galibier, Tourmalet, Mortirolo, Zoncolan, Box Hill). Mountain bikers can plan along trails, or pick from the **waymarked MTB routes** mapped in the area on screen.
 - **Smart trainer control.** Gradient simulation or ERG mode, over Bluetooth FTMS, Tacx FE-C-over-Bluetooth, or ANT+ FE-C. The gradient "feel" scales the real slope, softens descents and caps the steepest pitch (so a 15% ramp is rideable on any trainer). Shift your bike's own gears as normal, or set up **virtual gears** — your own chainrings and cassette or a preset — and shift with keys, a Bluetooth remote, a handlebar controller or on-screen buttons.
+- **Heart-rate mode.** On a ride without a workout, the trainer sets the power to keep your heart rate in a band you choose (65–75% of your max heart rate unless you set your own): a gentle warm-up first, small steps after, less power as your heart rate drifts up on a long ride, and it backs off if your cadence collapses. Move the band with the arrow keys, on-screen buttons or a handlebar controller. Needs a heart-rate strap and a trainer VeloPopuli can control. New, and not yet tried with a real strap — see [Heart-rate pacing](https://github.com/pepperstm/velopopuli/wiki/Heart-rate-pacing).
 - **Structured workouts on any route.** Import Zwift `.zwo`, `.erg` or `.mrc` files, or use the built-in sessions (endurance, sweet spot, threshold, VO₂max, over-unders, sprints and an FTP ramp test). The trainer holds each target in ERG while the route scrolls by; adjust the intensity or skip a step mid-ride.
 - **Fitness tracking.** Power curve (5 s to 1 h), an FTP estimate you can apply in one click, power zones on the HUD, and a training-load chart of fitness, fatigue and form.
 - **Sensors.** Power meters, heart-rate straps, speed and cadence sensors over Bluetooth and ANT+. When several devices report the same metric the most direct one wins (crank power meter over trainer estimate, strap over relayed HR). Basic trainers with only a speed sensor can use estimated power.
@@ -61,7 +62,7 @@ Be aware of what has and has not been proven:
 
 | Area | Status |
 | --- | --- |
-| GPX parsing, route building, climb detection, physics, ride recording, gamification, terrain, building and scenery generation, workouts, fitness maths, segment and ghost matching, landmarks, photo selection | Unit-tested (`cargo test`, 99 core tests) |
+| GPX parsing, route building, climb detection, physics, ride recording, gamification, terrain, building and scenery generation, workouts, fitness maths, segment and ghost matching, landmarks, photo selection | Unit-tested (`cargo test`, 141 core tests) |
 | Group-ride relay | Tested in-process (`cargo test -p velopopuli-relay`) and with two app instances riding together through a local relay |
 | Fan and lights | Requests checked against a pretend device for Home Assistant, Shelly and a webhook; not tried with real plugs |
 | Route finder, famous climbs | All eight climbs planned through the live BRouter service and checked against their known length and height gain |
@@ -72,6 +73,7 @@ Be aware of what has and has not been proven:
 | FIT export | Unit-tested by decoding the output with an independent FIT parser |
 | Bluetooth and ANT+ **protocol** encoding/decoding (FTMS, Cycling Power, CSC, HR, ANT framing, ANT+ HR/power/speed/cadence/FE-C pages) | Unit-tested against hand-built packets |
 | OpenBikeControl controllers | Button messages, the one-action-per-press choice and the App Information message unit-tested against bytes from the protocol's reference encoder; **not yet tried with a real controller** |
+| Heart-rate mode | The pacing is unit-tested and tested in simulated rides against made-up hearts (slow to answer, drifting up, a rider who tires), up to an hour long. Ridden in the app with the demo rider on Linux, in a headless display (Xvfb). **Not yet tried with a real heart-rate strap and trainer** |
 | Full app: import → real-terrain download → ride → save FIT → personal best → summary | Verified by automated runs with the demo rider on macOS (Apple Silicon), in debug, dev-server and release builds |
 | OpenStreetMap buildings | Verified against the live services on two Alpine routes and one across a city (about 5,900 buildings), through both data sources. Very long routes have not been tried. |
 | The surrounding road network | Verified against the live map tiles on the same three routes, from screenshots of the automated run: city streets, footways and tram lines, village junctions, forest tracks, and a suburb full of roundabouts and divided roads. Frame rate with a whole city's streets in view has not been measured (about 1.3 million extra vertices in the centre of Grenoble). |
@@ -108,7 +110,7 @@ npm run build:mac  # macOS: one installer for Apple Silicon and Intel (target/un
 
 Then: **Routes → Import GPX…**, **Devices → connect your trainer**, and press **Ride**. No hardware handy? Press Ride on the built-in Demo Loop and choose **Use demo rider** (↑/↓ change its effort).
 
-Ride keys: `Space` pause · `C` camera (behind, high behind, alongside, overhead) · `↑`/`↓` ERG target, workout intensity or demo rider effort. With virtual gears, the shift keys are yours to choose under **Settings → Gears**. A [handlebar controller](#handlebar-controllers-openbikecontrol) does all of this from the bars.
+Ride keys: `Space` pause · `C` camera (behind, high behind, alongside, overhead) · `↑`/`↓` ERG target, workout intensity, heart-rate band or demo rider effort. With virtual gears, the shift keys are yours to choose under **Settings → Gears**. A [handlebar controller](#handlebar-controllers-openbikecontrol) does all of this from the bars.
 
 Group rides: run `cargo run --release -p velopopuli-relay` on a machine everyone can reach (port 47800), put its address (`ws://host:47800`) in Settings → Group rides, tick *Ride with friends* when starting, and give the room code to the others (Routes → *Join a group ride*).
 
@@ -147,12 +149,12 @@ If a device drops out (it goes to sleep, the trainer is switched off) it shows *
 | Button | What it does |
 |---|---|
 | Shift up / down | Harder / easier virtual gear |
-| Increase / decrease difficulty | ERG target ±10 W, or the workout ±5% |
+| Increase / decrease difficulty | ERG target ±10 W, heart-rate band ±2 bpm, or the workout ±5% |
 | Skip interval | Next workout step |
 | Pause / Resume | Pause or resume the ride |
 | Camera view | Next camera |
 
-A controller often sends several of these for one button, so that every app finds one it knows. VeloPopuli does one thing per press: it shifts if it can, but in ERG (or a workout held in ERG) the difficulty buttons come first, as gears change nothing there. Holding a button counts as one press. A trainer or sensor with OpenBikeControl buttons of its own keeps its kind, and its buttons work too. Only the Bluetooth side of OpenBikeControl is supported, not its network mode.
+A controller often sends several of these for one button, so that every app finds one it knows. VeloPopuli does one thing per press: it shifts if it can, but in ERG or heart-rate mode (or a workout held in ERG) the difficulty buttons come first, as gears change nothing there. Holding a button counts as one press. A trainer or sensor with OpenBikeControl buttons of its own keeps its kind, and its buttons work too. Only the Bluetooth side of OpenBikeControl is supported, not its network mode.
 
 ### ANT+
 
