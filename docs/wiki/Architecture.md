@@ -7,6 +7,8 @@ crates/core/      Pure Rust library, no I/O — fully unit-tested
   gpx, physics    GPX → resampled route, smoothing, gradients, climb detection; speed from power
   ride, gamify    The ride simulation and recorder; XP, levels, badges, streaks
   workout         Zwift .zwo and .erg/.mrc workouts; built-in sessions
+  hrpace          Heart-rate mode: the pacer that sets an ERG target to keep heart rate in a band
+  demo            The demo rider's heart (slow to answer, drifting up) and legs that can tire
   fitness         Power curve, FTP estimate, zones, training load
   segments        Strava segments and other rides matched onto the route; ghosts; photos
   fit             FIT activity encoder
@@ -32,7 +34,7 @@ web/              React screens and the three.js world
 ## How a ride works
 
 1. **Start:** the route is built (resampled every few metres, smoothed, climbs found). Map data for the route is loaded from the cache or downloaded: vector tiles for scenery, Overpass for building detail and the route's road tags (surface, width, lanes, trail grades). The `World` combines it: a height field pinned to the road, the scene (forests, water, other roads), structures, the route road and barriers.
-2. **Loop (50 Hz, Rust):** sensor readings are merged (most direct source wins), the physics advances the rider, rivals and ghosts move, and once a second the trainer gets a command (gradient or ERG target) and the diagnostics log gets a line. State goes to the page 20 times a second.
+2. **Loop (50 Hz, Rust):** sensor readings are merged (most direct source wins), the physics advances the rider, rivals and ghosts move, and once a second the trainer gets a command (gradient or ERG target; in heart-rate mode, the target the heart-rate pacer picks) and the diagnostics log gets a line. State goes to the page 20 times a second.
 3. **Drawing:** the page asks for meshes in compact binary form (terrain chunks streamed around the rider with their trees, the road ribbon, structures, barriers, the tree models) and draws them with three.js; trees beyond about 200 m become camera-facing sprites rendered from the same models — or the native renderer draws the same meshes with Metal beneath a transparent page that shows only the HUD.
 4. **End:** the ride is saved as FIT, personal bests, XP and badges are updated, and it can be uploaded to Strava.
 
