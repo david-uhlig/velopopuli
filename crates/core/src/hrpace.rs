@@ -55,6 +55,12 @@ const STOPPED_S: f64 = 3.0;
 const RESUME_RAISE_LOCK_S: f64 = 30.0;
 /// Tolerance for comparing watts with their limits.
 const EDGE_W: f64 = 1e-6;
+/// Pacing that starts this early in a ride starts with a warm-up.
+const START_WINDOW_S: f64 = 60.0;
+/// A heart rate this far below the band means the rider has cooled off: warm up again.
+const WELL_BELOW_BPM: f64 = 15.0;
+/// Seconds of recent power averaged when pacing starts mid-ride.
+pub const START_POWER_S: usize = 10;
 
 /// Settings for one pacing session. Heart-rate limits are in bpm, power in watts.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -188,6 +194,19 @@ fn step_watts(ftp: f64, err_bpm: f64) -> f64 {
 
 fn clamp_w(cfg: &PaceConfig, w: f64) -> f64 {
     w.min(cfg.max_w).max(cfg.min_w)
+}
+
+/// How to start pacing: with a warm-up at the start of a ride, when the heart rate is well
+/// below the band or when the rider isn't pedalling; otherwise from the recent average power.
+/// `recent_power` is the last few one-second samples. Returns `(start_w, warm_up)`.
+pub fn pace_start(cfg: &PaceConfig, elapsed_s: f64, hr: Option<f64>, recent_power: &[f64]) -> (f64, bool) {
+    let mean = if recent_power.is_empty() { 0.0 } else { recent_power.iter().sum::<f64>() / recent_power.len() as f64 };
+    let warm_up = elapsed_s < START_WINDOW_S || hr.is_some_and(|h| h < cfg.low - WELL_BELOW_BPM) || mean < STOPPED_W;
+    if warm_up {
+        (0.0, true)
+    } else {
+        (mean, false)
+    }
 }
 
 impl HrPacer {
@@ -357,6 +376,11 @@ impl HrPacer {
         self.output(trend)
     }
 
+    /// Seconds of warm-up still to go, or `None` once it is over (or there was none).
+    pub fn warmup_left_s(&self, cfg: &PaceConfig) -> Option<f64> {
+        self.warming.then(|| (cfg.warmup_s - self.warm_s).max(0.0))
+    }
+
     /// Moves the target toward the band from the predicted heart rate, respecting cooldowns and the raise lock.
     fn control(&mut self, cfg: &PaceConfig, s: f64, trend: f64) -> PaceState {
         let (lo, hi) = inner_band(cfg.low, cfg.high);
@@ -467,5 +491,30 @@ mod tests {
         let held = HrPacer::new(&cfg(), 500.0, false);
         assert_eq!(held.watts, 262.5);
         assert_eq!(held.state, PaceState::Holding);
+    }
+
+    #[test]
+    fn pace_start_warms_up_early_cold_or_stopped() {
+        assert_eq!(pace_start(&cfg(), 0.0, None, &[]), (0.0, true));
+        assert_eq!(pace_start(&cfg(), 59.9, Some(140.0), &[200.0; 10]), (0.0, true));
+        assert_eq!(pace_start(&cfg(), 600.0, Some(119.9), &[200.0; 10]), (0.0, true));
+        assert_eq!(pace_start(&cfg(), 600.0, Some(140.0), &[5.0; 10]), (0.0, true));
+        assert_eq!(pace_start(&cfg(), 600.0, Some(140.0), &[]), (0.0, true));
+    }
+
+    #[test]
+    fn pace_start_mid_ride_holds_the_recent_average() {
+        assert_eq!(pace_start(&cfg(), 600.0, Some(120.0), &[200.0; 10]), (200.0, false));
+        assert_eq!(pace_start(&cfg(), 600.0, None, &[150.0, 160.0]), (155.0, false));
+    }
+
+    #[test]
+    fn warm_up_time_left_counts_down_and_ends() {
+        let mut p = HrPacer::new(&cfg(), 0.0, true);
+        assert_eq!(p.warmup_left_s(&cfg()), Some(600.0));
+        p.step(&cfg(), PaceInput { t: 0.0, hr: Some(100.0), power: 150.0, cadence: Some(90.0), paused: false });
+        p.step(&cfg(), PaceInput { t: 1.0, hr: Some(100.0), power: 150.0, cadence: Some(90.0), paused: false });
+        assert_eq!(p.warmup_left_s(&cfg()), Some(599.0));
+        assert_eq!(HrPacer::new(&cfg(), 200.0, false).warmup_left_s(&cfg()), None);
     }
 }
