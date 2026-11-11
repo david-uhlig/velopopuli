@@ -26,7 +26,7 @@ A full debug build plus a universal release build need about 10 GB in `target/`.
 
 ## Tests
 
-There are 154 tests: 130 for the core, 1 for the relay and 23 for the app. `cargo test --workspace` runs all but four, which need the network and run only when asked for (`cargo test -p velopopuli -- --ignored`).
+There are 196 tests: 172 for the core, 1 for the relay and 23 for the app. `cargo test --workspace` runs all but four, which need the network and run only when asked for (`cargo test -p velopopuli -- --ignored`).
 
 | Where | What it covers |
 |---|---|
@@ -72,8 +72,9 @@ VP_DATA_DIR=/tmp/vp VP_SMOKE=/tmp/vp/shot.png target/debug/velopopuli
 | `VP_SMOKE_CLIP` | Save this many seconds of window frames (15 fps) to `<name>.frames/`, for demo clips |
 | `VP_SMOKE_REPORT` | Also save a diagnostics report here |
 | `VP_SKIP_OVERPASS` | Don't ask the Overpass API: tests the fallbacks |
+| `VP_DEMO_EXHAUSTED` | The demo rider tires on an ERG target above this many watts (cadence and power drop), to try heart-rate mode backing off; works without `VP_SMOKE` too |
 
-The ride uses the simulated demo rider. With `"nativeRenderer": true` in the data folder's `settings.json`, the native renderer's own frame is saved too, as `<name>.native.png`. That's the only way to see it, since window snapshots capture just the web view.
+The ride uses the simulated demo rider. To ride in heart-rate mode, put `{"trainer":{"mode":"hr"}}` in the data folder's `settings.json`; the diagnostics log then gets a `[ride] hr pacing start …` line, and each second's `[ride]` line says `cmd=hr:<watts>W/<state>/hr<smoothed>`. With `"nativeRenderer": true` in the data folder's `settings.json`, the native renderer's own frame is saved too, as `<name>.native.png`. That's the only way to see it, since window snapshots capture just the web view.
 
 **Tips:**
 

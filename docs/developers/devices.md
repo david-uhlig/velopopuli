@@ -112,7 +112,7 @@ Bluetooth remotes and keyboards need nothing special: they send keys. On the rid
 
 - **Power:** 190 W on the flat, pushing harder uphill and easing off downhill (from 0.4× to 1.45×), with a little wobble. In ERG it holds the target.
 - **Cadence:** about 88 rpm, lower uphill.
-- **Heart rate:** drifting towards `90 + 0.36 × power`.
+- **Heart rate:** from [`crates/core/src/demo.rs`](../../crates/core/src/demo.rs): 70 bpm at rest plus 0.48 bpm per watt, a 12 s delay, a 30 s time constant and a slow upward drift above 100 W, so heart-rate mode has a heart to work with. `VP_DEMO_EXHAUSTED` makes the legs tire.
 
 The smoke harness rides with it.
 

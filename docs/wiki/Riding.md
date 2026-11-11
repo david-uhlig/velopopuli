@@ -29,7 +29,7 @@ Then press **Start riding**.
 |---|---|
 | `Space` | Pause and resume |
 | `C` | Change camera: behind, high behind, alongside, overhead |
-| `↑` / `↓` | Raise or lower the ERG target, the workout's intensity, or the demo rider's effort |
+| `↑` / `↓` | Raise or lower the ERG target, the workout's intensity, the heart-rate band, or the demo rider's effort |
 
 The same controls are on screen, along the bottom. A [handlebar controller](Virtual-gears#controllers) can do them too.
 
@@ -39,6 +39,7 @@ The same controls are on screen, along the bottom. A [handlebar controller](Virt
 
 - **Gradient mode** (the default): the trainer gets harder as the road climbs and eases off downhill. **Feel** scales it: 100% is the real gradient, 50% is half as steep. Under **Settings → Trainer & physics** you can also cap the steepest pitch and soften descents, so a 15% ramp is rideable on any trainer.
 - **ERG mode:** the trainer holds a set power whatever the road does. Use `↑` and `↓` to change it.
+- **Heart-rate mode:** on a ride without a workout, the trainer sets the power to keep your heart rate in a band you choose. See [[Heart-rate pacing]].
 - **Gears:** shift your bike's gears as you would on the road. If you'd rather shift with keys or buttons, see [[Virtual gears]].
 
 Your speed comes from your power, your weight, the slope and the air, just as outdoors. The trainer's resistance changes how it feels, never how fast you go. That's why your speed can differ from what the trainer's own display says.

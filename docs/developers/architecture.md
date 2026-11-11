@@ -36,6 +36,8 @@ crates/core/src/
   gearing.rs        Virtual gears: gear sets, the gradient that makes a gear felt     → Physics
   ride.rs           The ride engine: rivals, laps, climbs, segments, recording        → The ride
   workout.rs        .zwo, .erg and .mrc workouts; built-in sessions                   → The ride
+  hrpace.rs         Heart-rate mode: the pacer that sets an ERG target                → Physics
+  demo.rs           The demo rider's heart (slow to answer, drifting up) and tiring   → Devices
   fitness.rs        Power curve, FTP estimate, zones, training load                   → The ride
   gamify.rs         XP, levels, badges, streaks                                       → The ride
   segments.rs       Other rides and segments matched onto the route; ghosts; photos   → The ride

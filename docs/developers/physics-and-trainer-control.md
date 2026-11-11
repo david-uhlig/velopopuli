@@ -54,6 +54,7 @@ The ride loop sends one `TrainerCommand` a second, or within 250 ms of a gear ch
 |---|---|
 | A workout step, with **Hold workout targets** on | `TargetPower(target × FTP × intensity)` |
 | ERG mode, no workout | `TargetPower(erg_watts)` |
+| Heart-rate mode, no workout | `TargetPower(watts)`, the target [`hrpace.rs`](../../crates/core/src/hrpace.rs) picks to keep heart rate in the rider's band |
 | Otherwise | `Simulation { grade, crr, cw }` |
 
 At ride start the trainer also gets `UserConfig { rider_kg, bike_kg }`. How each command becomes bytes for each kind of trainer is in [Devices](devices.md#trainer-control).
@@ -107,4 +108,4 @@ Consequences, all as on a real bike: at low speed on the flat there is little fo
 - **Start gear:** the one set, or else the one nearest the real ratio.
 - **Cadence** with no cadence sensor is worked out from speed, gear and wheel size (`cadence`), and shown as estimated.
 
-Shifting is `ride_shift` (keys, on-screen buttons) or a controller press (see [Devices](devices.md#handlebar-controllers)). Gears do nothing in ERG or in a workout held in ERG.
+Shifting is `ride_shift` (keys, on-screen buttons) or a controller press (see [Devices](devices.md#handlebar-controllers)). Gears do nothing in ERG, in heart-rate mode or in a workout held in ERG.
