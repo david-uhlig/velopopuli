@@ -16,6 +16,7 @@ use velopopuli_core::fitness::{estimate_ftp, power_curve};
 use velopopuli_core::gamify::{apply_ride, streaks, RideFacts};
 use velopopuli_core::gearing;
 use velopopuli_core::gpx::{build_route, demo_route, parse_gpx, Climb, Route};
+use velopopuli_core::hrpace::{pace_start, HrPacer, PaceInput, PaceState, PaceWarning, START_POWER_S};
 use velopopuli_core::ride::{ClimbResult, RideEngine, RideInput, RideOptions, Rival, RivalKind, SegmentLive, SegmentResult};
 use velopopuli_core::segments::{Segment, SegmentSource};
 use velopopuli_core::types::{PersonalBest, Profile, RideSummary, Settings, TrainerMode};
@@ -116,6 +117,24 @@ struct GearHud {
     label: String,
 }
 
+/// Heart-rate pacing, for the HUD.
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct HrPaceHud {
+    /// The ERG target sent to the trainer, in whole watts.
+    watts: f64,
+    state: PaceState,
+    warning: Option<PaceWarning>,
+    /// The band being held, in bpm.
+    low: f64,
+    high: f64,
+    hr_smooth: Option<f64>,
+    /// Heart-rate trend, bpm per minute.
+    trend: f64,
+    /// Seconds of warm-up still to go; `None` once it is over.
+    warmup_left_s: Option<f64>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RideState<'a> {
@@ -158,6 +177,8 @@ struct RideState<'a> {
     segment: Option<SegmentLive>,
     segment_result: Option<&'a SegmentResult>,
     group_status: Option<String>,
+    /// Heart-rate pacing, while the trainer is in heart-rate mode on a free ride.
+    hr_pace: Option<HrPaceHud>,
 }
 
 pub struct Session {
@@ -425,8 +446,9 @@ impl Session {
             let s = self.settings.lock().unwrap();
             (!gearing::gears(&s.gears).is_empty(), s.trainer.clone())
         };
-        // The same rule as the trainer commands in `run`: workouts hold their targets in ERG if set to.
-        let erg = if self.engine.lock().unwrap().workout.is_some() { trainer.workout_erg } else { trainer.mode == TrainerMode::Erg };
+        // The same rule as the trainer commands in `run`: workouts hold their targets in ERG if set to,
+        // and heart-rate pacing drives the trainer in ERG too.
+        let erg = if self.engine.lock().unwrap().workout.is_some() { trainer.workout_erg } else { matches!(trainer.mode, TrainerMode::Erg | TrainerMode::Hr) };
         obc::Context { virtual_gears, erg }
     }
 
@@ -598,6 +620,10 @@ fn run(
     let mut result_shown: Option<(usize, Instant)> = None;
     let mut segment_shown: Option<(String, Instant)> = None;
     let mut shared = last - Duration::from_secs(2);
+    // Heart-rate pacing on a free ride: the controller and its last decision (for the HUD and for extra commands after a shift).
+    let began = last;
+    let mut pacer: Option<HrPacer> = None;
+    let mut pace_hud: Option<HrPaceHud> = None;
 
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(TICK);
@@ -614,13 +640,42 @@ fn run(
         engine.tick(dt, RideInput { power: tel.power, cadence: tel.cadence, hr: tel.hr }, now_ms());
 
         // Once a second, and straight away (but no more than four times a second) after a shift.
-        if now - commanded >= Duration::from_secs(1) || (engine.gear_shifted && now - commanded >= Duration::from_millis(250)) {
+        let second = now - commanded >= Duration::from_secs(1);
+        if second || (engine.gear_shifted && now - commanded >= Duration::from_millis(250)) {
             commanded = now;
             engine.gear_shifted = false;
+            if trainer.mode != TrainerMode::Hr || engine.workout.is_some() {
+                pacer = None;
+                pace_hud = None;
+            } else if second || pacer.is_none() {
+                // The pacer steps once a second; a command after a shift repeats its last target.
+                let cfg = {
+                    let s = settings.lock().unwrap();
+                    s.trainer.pace_config(&s.rider)
+                };
+                let p = pacer.get_or_insert_with(|| {
+                    let recent: Vec<f64> = engine.samples.iter().rev().take(START_POWER_S).map(|s| s.power).collect();
+                    let (start_w, warm_up) = pace_start(&cfg, engine.elapsed, tel.hr, &recent);
+                    crate::diag::event("ride", format!("hr pacing start warm_up={warm_up} start_w={start_w:.0} band={:.0}-{:.0} watts={:.0}-{:.0}", cfg.low, cfg.high, cfg.min_w, cfg.max_w));
+                    HrPacer::new(&cfg, start_w, warm_up)
+                });
+                let out = p.step(&cfg, PaceInput { t: (now - began).as_secs_f64(), hr: tel.hr, power: tel.power, cadence: tel.cadence, paused: engine.user_paused || engine.finished });
+                pace_hud = Some(HrPaceHud {
+                    watts: out.watts.round(),
+                    state: out.state,
+                    warning: out.warning,
+                    low: cfg.low,
+                    high: cfg.high,
+                    hr_smooth: out.hr_smooth,
+                    trend: out.trend_bpm_min,
+                    warmup_left_s: p.warmup_left_s(&cfg),
+                });
+            }
             let workout_target = engine.workout_target().filter(|_| trainer.workout_erg && !engine.user_paused);
             let cmd = match (workout_target, trainer.mode) {
                 (Some(w), _) => TrainerCommand::TargetPower(w),
                 (None, TrainerMode::Erg) if engine.workout.is_none() => TrainerCommand::TargetPower(trainer.erg_watts),
+                (None, TrainerMode::Hr) if engine.workout.is_none() => TrainerCommand::TargetPower(pace_hud.map_or(trainer.erg_watts, |h| h.watts)),
                 _ => {
                     let (crr, gear_set, mass) = {
                         let s = settings.lock().unwrap();
@@ -661,7 +716,14 @@ fn run(
                     tel.has_power,
                     match cmd {
                         TrainerCommand::Simulation { grade, .. } => format!("sim:{:.1}%", grade * 100.0),
-                        TrainerCommand::TargetPower(w) => format!("erg:{w:.0}W"),
+                        TrainerCommand::TargetPower(w) => match pace_hud {
+                            Some(h) => {
+                                let state = format!("{:?}", h.state).to_lowercase();
+                                let warning = h.warning.map(|x| format!("/{x:?}").to_lowercase()).unwrap_or_default();
+                                format!("hr:{w:.0}W/{state}/hr{}{warning}", f(h.hr_smooth))
+                            }
+                            None => format!("erg:{w:.0}W"),
+                        },
                         TrainerCommand::UserConfig { .. } => "config".into(),
                     },
                     per_device.join(" ")
@@ -749,6 +811,7 @@ fn run(
                 segment: engine.segment_live(),
                 segment_result: engine.last_segment_result.as_ref().filter(|_| show_segment),
                 group_status: group.as_ref().map(|g| g.status()),
+                hr_pace: pace_hud,
             };
             let _ = app.emit("ride:state", &state);
         }
