@@ -9,6 +9,7 @@
 - [[Routes and the map]]
 - [[Riding]]
 - [[Workouts]]
+- [[Heart-rate pacing]]
 - [[Virtual gears]]
 - [[Progress and goals]]
 - [[Strava]]
