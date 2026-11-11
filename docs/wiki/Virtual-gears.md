@@ -23,7 +23,7 @@ The bars under the settings show every gear, from easiest to hardest, with the s
 
 ## Riding
 
-The current gear shows on the HUD under cadence, and **− Gear +** buttons appear in the controls. The new resistance is sent the moment you shift. Gears do nothing in **ERG** mode, where the trainer holds the power whatever gear you're in, or in workouts that hold targets in ERG.
+The current gear shows on the HUD under cadence, and **− Gear +** buttons appear in the controls. The new resistance is sent the moment you shift. Gears do nothing in **ERG** or **heart-rate** mode, where the trainer holds the power whatever gear you're in, or in workouts that hold targets in ERG.
 
 ![Riding in gear 13 of 22 (50×21) on a compact chainset, with Gear − + in the controls](https://raw.githubusercontent.com/pepperstm/velopopuli/main/docs/images/gears-ride.jpg)
 
@@ -38,12 +38,12 @@ Controllers that speak [OpenBikeControl](https://openbikecontrol.org), an open p
 | Button | What it does |
 |---|---|
 | Shift up / down | Harder / easier virtual gear (nothing with *My bike's gears*) |
-| Increase / decrease difficulty | ERG target ±10 W, or the workout ±5% |
+| Increase / decrease difficulty | ERG target ±10 W, heart-rate band ±2 bpm, or the workout ±5% |
 | Skip interval | Next workout step |
 | Pause / Resume | Pause or resume the ride |
 | Camera view | Next camera |
 
-A controller can send several of these for one button, so that every app finds one it knows (shift up and increase difficulty, say). Each press does only one thing: shifting wins, except in ERG — or a workout held in ERG — where gears change nothing and the difficulty buttons win. Holding a button counts as one press. A trainer or sensor with OpenBikeControl buttons of its own keeps working as a trainer or sensor, and its buttons work too.
+A controller can send several of these for one button, so that every app finds one it knows (shift up and increase difficulty, say). Each press does only one thing: shifting wins, except in ERG or heart-rate mode — or a workout held in ERG — where gears change nothing and the difficulty buttons win. Holding a button counts as one press. A trainer or sensor with OpenBikeControl buttons of its own keeps working as a trainer or sensor, and its buttons work too.
 
 ## How it works
 

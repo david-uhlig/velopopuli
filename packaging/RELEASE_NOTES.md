@@ -2,11 +2,12 @@
 
 > This is an early release. The 3D world, physics, workouts and progress tracking are well tested; real trainers and sensors are only now being tried, and the Windows and Linux builds have had little use. If something doesn't work, the app's **Report a problem → Report on GitHub** builds a diagnostics report for you — please send one.
 
-## What's new in 0.3.9
+## What's new since 0.3.9
 
-- **Handlebar controllers.** Controllers that speak [OpenBikeControl](https://openbikecontrol.org), an open protocol for handlebar buttons, now work over Bluetooth. Shift virtual gears, raise or lower the ERG target or workout intensity, skip a workout step, pause and switch camera without letting go of the bars. Pair one under **Devices → Add Bluetooth device…**; it shows as *Controller*. Thanks to Jonas Acker for adding it.
-- **Pairing, written up.** The README and the guides now walk through pairing a Bluetooth device step by step, and what the Devices list tells you.
-- Controller support is new and hasn't been tried with a real controller yet. If yours misbehaves, **Report a problem** in the app gathers what's needed to fix it.
+- **Heart-rate mode.** Press **Heart rate** on the ride screen and the trainer sets the power to keep your heart rate in a band — good for long, steady rides. It starts with a gentle warm-up, changes the power in small steps, eases off as your heart rate drifts up over a long ride, and backs off if your legs give out. Move the band 2 bpm at a time with the arrow keys, the on-screen buttons or a handlebar controller. Set the band, the power limits and the warm-up under **Settings → Heart-rate mode**, or leave them to be worked out from your max heart rate and FTP. It works on rides without a workout, with a heart-rate strap and a trainer VeloPopuli can control. See [Heart-rate pacing](https://github.com/pepperstm/velopopuli/wiki/Heart-rate-pacing).
+- **A more lifelike demo rider.** The demo rider's heart now answers effort late and slowly and drifts up on long efforts, like a real one, so you can try heart-rate mode with no hardware.
+- Heart-rate mode is new and hasn't been tried with a real strap and trainer yet. It is a training aid, not medical advice: if you feel unwell, stop riding. If it misbehaves, **Report a problem** in the app gathers what's needed to fix it.
+- Going back to an older version? Switch the ride screen to **Gradient** or **ERG** first: older versions don't know heart-rate mode and would ride with default settings.
 
 ## Download
 

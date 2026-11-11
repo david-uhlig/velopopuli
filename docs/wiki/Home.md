@@ -15,8 +15,9 @@ VeloPopuli turns any GPX route into a 3D world built from OpenStreetMap and open
 ## Using the app
 
 - [[Routes and the map]] — importing and finding routes; how the 3D world is built (buildings, surfaces, road widths, bridges)
-- [[Riding]] — the HUD, cameras, gradient and ERG, pace riders, ghosts, climbs, time of day and weather
+- [[Riding]] — the HUD, cameras, gradient, ERG and heart-rate mode, pace riders, ghosts, climbs, time of day and weather
 - [[Workouts]] — built-in sessions, importing .zwo/.erg/.mrc
+- [[Heart-rate pacing]] — let the trainer keep your heart rate in a band
 - [[Virtual gears]] — shift with keys or a remote instead of your bike's gears (optional)
 - [[Progress and goals]] — power curve, FTP, training load, streaks, badges and the season goal
 - [[Strava]] — connect, upload, segments and friends' rides as ghosts

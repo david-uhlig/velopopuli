@@ -7,6 +7,6 @@
 
 ![Riding through Bourg d'Oisans](https://raw.githubusercontent.com/pepperstm/velopopuli/main/docs/images/ride-town.jpg)
 
-**During the ride:** `Space` pauses, `C` changes the camera (behind, high behind, alongside, overhead), and `↑`/`↓` change the ERG target, workout intensity or the demo rider's effort. See [[Riding]] for the rest.
+**During the ride:** `Space` pauses, `C` changes the camera (behind, high behind, alongside, overhead), and `↑`/`↓` change the ERG target, workout intensity, heart-rate band or the demo rider's effort. See [[Riding]] for the rest.
 
 **After the ride:** the summary shows your time, power, personal bests and badges. The ride is saved as a `.FIT` file, and can go to Strava in one click (see [[Strava]]).

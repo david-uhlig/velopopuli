@@ -9,6 +9,9 @@ Bluetooth FTMS trainers (most made since about 2018), Tacx trainers using FE-C o
 **Do I need a smart trainer?**
 No. With a power meter you ride normally (the trainer just doesn't change resistance). With only a speed sensor on a basic trainer, VeloPopuli can estimate power. With nothing at all, try the demo rider.
 
+**Can the trainer follow my heart rate?**
+Yes. In heart-rate mode the trainer sets the power to keep your heart rate in a band you choose, on rides without a workout. You need a heart-rate strap (or a watch that broadcasts heart rate) and a trainer VeloPopuli can control. See [[Heart-rate pacing]].
+
 **Why is my speed different from my trainer's display?**
 Your speed comes from your power, weight and the virtual road, as it would outdoors — not from the flywheel.
 
