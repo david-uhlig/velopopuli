@@ -1246,7 +1246,8 @@ body.native-3d canvas.world {
 .gear-tile {
   animation: gear-flash 0.6s ease-out;
 }
-.gear-tile small {
+.gear-tile small,
+.pace-tile small {
   font-size: 0.5em;
   font-weight: 600;
   color: var(--muted);

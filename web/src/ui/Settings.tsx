@@ -13,14 +13,18 @@ function Num(props: {
   step?: number
   suffix?: string
   hint?: string
+  /** Placeholder for a blank field; with it, blank means 0 ("work it out for me"). */
+  auto?: string
 }): React.JSX.Element {
-  // Keep the raw text so half-typed values ("7", "") aren't clamped mid-edit.
-  const [text, setText] = useState(String(props.value))
-  useEffect(() => setText(String(props.value)), [props.value])
+  // Keep the raw text so half-typed values ("7", "") aren't clamped mid-edit. With `auto`, 0 shows as a blank field.
+  const show = (v: number): string => (props.auto !== undefined && v === 0 ? '' : String(v))
+  const [text, setText] = useState(show(props.value))
+  useEffect(() => setText(show(props.value)), [props.value])
   const commit = (): void => {
     const v = parseFloat(text)
-    if (isFinite(v)) props.onChange(Math.max(props.min, Math.min(props.max, v)))
-    else setText(String(props.value))
+    if (props.auto !== undefined && text.trim() === '') props.onChange(0)
+    else if (isFinite(v)) props.onChange(Math.max(props.min, Math.min(props.max, v)))
+    else setText(show(props.value))
   }
   return (
     <label className="field">
@@ -32,6 +36,7 @@ function Num(props: {
           min={props.min}
           max={props.max}
           step={props.step ?? 1}
+          placeholder={props.auto}
           onChange={(e) => setText(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => e.key === 'Enter' && commit()}
@@ -257,7 +262,7 @@ function GearsCard(): React.JSX.Element {
           <p className="muted small">
             Most Bluetooth presentation clickers and media remotes send arrow or Page Up / Page Down keys — press <b>+ Add</b>, then the button, to use one as a
             shifter. A handlebar controller that speaks OpenBikeControl needs nothing here: pair it under <b>Devices</b> and its shift buttons change gear.
-            Gears do nothing in ERG mode, where the trainer holds the power whatever gear you're in.
+            Gears do nothing in ERG or heart-rate mode, where the trainer holds the power whatever gear you're in.
           </p>
         </>
       )}
@@ -562,7 +567,7 @@ export function SettingsScreen(): React.JSX.Element {
         </div>
         <Toggle
           label="Feel the road surface"
-          hint="Concrete, gravel, cobbles and earth roll heavier than tarmac — you go slower on screen and the trainer gets harder. Not in ERG."
+          hint="Concrete, gravel, cobbles and earth roll heavier than tarmac — you go slower on screen and the trainer gets harder. Not in ERG or heart-rate mode."
           value={settings.physics.roadSurfaces}
           onChange={(v) => physics({ roadSurfaces: v })}
         />
@@ -578,6 +583,65 @@ export function SettingsScreen(): React.JSX.Element {
           value={settings.trainer.workoutErg}
           onChange={(v) => trainer({ workoutErg: v })}
         />
+      </section>
+
+      <section className="card">
+        <h2>Heart-rate mode</h2>
+        <p className="muted">
+          The trainer sets the power to keep your heart rate in a band — good for long, steady rides. Choose it on the ride screen once a heart-rate strap is
+          connected. Leave a field blank to have it worked out from your max heart rate and FTP.
+        </p>
+        <div className="fields">
+          <Num
+            label="Band, low"
+            value={settings.trainer.hrLow}
+            min={60}
+            max={230}
+            suffix="bpm"
+            auto="Automatic"
+            hint="Blank: 65% of your max heart rate."
+            onChange={(v) => trainer({ hrLow: v })}
+          />
+          <Num
+            label="Band, high"
+            value={settings.trainer.hrHigh}
+            min={60}
+            max={230}
+            suffix="bpm"
+            auto="Automatic"
+            hint="Blank: 75% of your max heart rate."
+            onChange={(v) => trainer({ hrHigh: v })}
+          />
+          <Num
+            label="Lowest power"
+            value={settings.trainer.hrMinWatts}
+            min={20}
+            max={1500}
+            suffix="W"
+            auto="Automatic"
+            hint="The trainer never goes below this. Blank: 40% of your FTP."
+            onChange={(v) => trainer({ hrMinWatts: v })}
+          />
+          <Num
+            label="Highest power"
+            value={settings.trainer.hrMaxWatts}
+            min={20}
+            max={1500}
+            suffix="W"
+            auto="Automatic"
+            hint="The trainer never goes above this. Blank: 105% of your FTP."
+            onChange={(v) => trainer({ hrMaxWatts: v })}
+          />
+          <Num
+            label="Warm-up"
+            value={settings.trainer.hrWarmupMin}
+            min={0}
+            max={30}
+            suffix="min"
+            hint="The longest gentle ramp before the band is held. It ends sooner once your heart rate is up; 0 skips it."
+            onChange={(v) => trainer({ hrWarmupMin: v })}
+          />
+        </div>
       </section>
 
       <GearsCard />

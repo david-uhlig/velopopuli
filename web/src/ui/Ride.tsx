@@ -3,7 +3,7 @@ import { errorText } from '../bridge'
 import { distUnit, distValue, fmtDist, fmtEle, fmtTime, gradeColor, speedUnit, speedValue, zoneColor } from '../core/fmt'
 import type { Route } from '../core/gpx'
 import { api, smokeHooks, useSettings } from '../state'
-import type { RideInit, RideRequest, RideState, RideSummary } from '../types'
+import { DEFAULT_SETTINGS, type HrPaceHud, type PaceState, type RideInit, type RideRequest, type RideState, type RideSummary, type Settings } from '../types'
 import { WorkoutShape } from './Workouts'
 import { World } from '../world/scene'
 import { look, timeFromHour, weatherFromCode } from '../world/weather'
@@ -33,6 +33,50 @@ function zone(power: number, ftp: number): number {
   const r = ftp > 0 ? power / ftp : 0
   return [0.55, 0.75, 0.9, 1.05, 1.2, 1.5].filter((l) => r >= l).length + 1
 }
+
+/** Heart-rate mode moves the whole band by this much per press. */
+const BAND_STEP = 2
+/** The band's low edge goes no lower than this. */
+const BAND_FLOOR = 80
+
+/** Max heart rate as the Rust side reads it: an implausible one falls back to the default. */
+const maxHrOf = (maxHr: number): number => (maxHr >= 100 ? maxHr : DEFAULT_SETTINGS.rider.maxHr)
+
+/**
+ * The band heart-rate mode holds: the rider's own values once they are in order (so quick presses add up),
+ * otherwise the band the pacer reports, which the Rust side has worked out (`TrainerSettings::pace_config`).
+ */
+function hrBand(trainer: Settings['trainer'], maxHr: number, pace: HrPaceHud | null): [number, number] | null {
+  const { hrLow: low, hrHigh: high } = trainer
+  if (low > 0 && high >= low + 4 && high <= maxHrOf(maxHr)) return [low, high]
+  return pace ? [pace.low, pace.high] : null
+}
+
+const PACE_TEXT: Record<PaceState, string> = {
+  warmUp: 'Warming up',
+  holding: 'Holding',
+  raising: 'Raising',
+  easing: 'Easing off',
+  struggling: 'Cadence low – easing',
+  noHr: 'No heart rate'
+}
+
+/** What heart-rate pacing is doing, in a few words. */
+function paceText(p: HrPaceHud): string {
+  return p.state === 'warmUp' && p.warmupLeftS !== null ? `${PACE_TEXT.warmUp} ${fmtTime(p.warmupLeftS)}` : PACE_TEXT[p.state]
+}
+
+/** Something the rider should know about heart-rate pacing, if anything. */
+function paceWarning(p: HrPaceHud): string | null {
+  if (p.warning === 'highAtFloor') return 'Heart rate is above your band even at your lowest power. Take it easy, or raise the band.'
+  if (p.warning === 'lowAtCeiling') return 'Heart rate is below your band even at your highest power. Lower the band, or raise the power ceiling in Settings.'
+  if (p.warning === 'nearMaxHr') return 'Heart rate close to your maximum – easing off.'
+  if (p.warning === 'noHr') return `No heart rate from your strap – holding ${p.watts} W until it's back.`
+  return null
+}
+
+/** Heart rate against the band: blue below, green inside, amber above. */
+const bandColor = (hr: number, [low, high]: [number, number]): string => (hr < low ? '#4aa3ff' : hr > high ? 'var(--warn)' : 'var(--ok)')
 
 export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX.Element {
   const routeId = request.routeId
@@ -254,17 +298,36 @@ export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX
   workoutRef.current = Boolean(init?.workout)
   const pausedRef = useRef(false)
   pausedRef.current = hud?.paused ?? false
+  const paceRef = useRef<HrPaceHud | null>(null)
+  paceRef.current = hud?.hrPace ?? null
   const togglePause = (): void => void api.ride.togglePause()
   function cycleCamera(): void {
     if (nativeRef.current) void api.native.camera()
     else worldRef.current?.cycleCamera()
   }
   const setTrainer = (patch: Partial<typeof settings.trainer>): void => update((s) => ({ ...s, trainer: { ...s.trainer, ...patch } }))
+  // Heart-rate mode: move the whole band, keeping its width, between BAND_FLOOR and max heart rate.
+  const moveBand = (delta: number): void => {
+    const s = settingsRef.current
+    const band = hrBand(s.trainer, s.rider.maxHr, paceRef.current)
+    if (!band) return
+    const [low, high] = band
+    const step = delta > 0 ? Math.min(delta, maxHrOf(s.rider.maxHr) - high) : Math.max(delta, BAND_FLOOR - low)
+    if (Math.sign(step) !== Math.sign(delta)) return
+    setTrainer({ hrLow: low + step, hrHigh: high + step })
+  }
   const nudge = (delta: number): void => {
     const cfg = settingsRef.current.trainer
     if (workoutRef.current) void api.ride.intensity(delta > 0 ? 0.05 : -0.05)
     else if (cfg.mode === 'erg') setTrainer({ ergWatts: Math.max(50, Math.min(1000, cfg.ergWatts + delta)) })
+    else if (cfg.mode === 'hr') moveBand(Math.sign(delta) * BAND_STEP)
     else void api.devices.demoNudge(delta)
+  }
+  // Leaving heart-rate mode, ERG starts from the pacer's last target so the resistance doesn't jump.
+  const toErg = (): void => {
+    const pace = paceRef.current
+    if (settingsRef.current.trainer.mode === 'hr' && pace) setTrainer({ mode: 'erg', ergWatts: Math.max(50, Math.min(1000, Math.round(pace.watts / 10) * 10)) })
+    else setTrainer({ mode: 'erg' })
   }
 
   useEffect(() => {
@@ -319,6 +382,10 @@ export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX
   const climb = ready && hud.climbIndex !== null ? route.climbs[hud.climbIndex] : null
   const climbBest = ready && hud.climbIndex !== null ? init.pbClimbs[hud.climbIndex] : undefined
   const mode = settings.trainer.mode
+  const hrMode = mode === 'hr' && !init?.workout
+  const band = hud ? hrBand(settings.trainer, settings.rider.maxHr, hud.hrPace) : null
+  const hrColor = hrMode && band && hud && hud.hr !== null ? bandColor(hud.hr, band) : undefined
+  const warning = hrMode && hud?.hrPace ? paceWarning(hud.hrPace) : null
   const standings = ready
     ? [
         { id: 'me', name: settings.rider.name || 'You', color: '#e9ff60', delta: 0, me: true },
@@ -376,10 +443,21 @@ export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX
               <div className="tile-value">{speedValue(hud.speed, units).toFixed(1)}</div>
               <div className="tile-label">{speedUnit(units)}</div>
             </div>
-            <div className="tile">
-              <div className="tile-value">{hud.hr === null ? '–' : Math.round(hud.hr)}</div>
+            <div className="tile" style={{ borderColor: hrColor }}>
+              <div className="tile-value" style={{ color: hrColor }}>
+                {hud.hr === null ? '–' : Math.round(hud.hr)}
+              </div>
               <div className="tile-label">♥ bpm</div>
             </div>
+            {hrMode && (
+              <div className="tile pace-tile">
+                <div className="tile-value">
+                  {hud.hrPace ? hud.hrPace.watts : '–'}
+                  <small>W target</small>
+                </div>
+                <div className="tile-label">{hud.hrPace ? paceText(hud.hrPace) : 'Starting…'}</div>
+              </div>
+            )}
             <div className="tile">
               <div className="tile-value">{hud.cadence === null ? '–' : Math.round(hud.cadence)}</div>
               <div className="tile-label">{hud.cadenceEstimated ? 'rpm (from gear)' : 'rpm'}</div>
@@ -475,6 +553,7 @@ export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX
             </div>
           )}
           {hud.cue && <div className="banner cue">{hud.cue}</div>}
+          {!hud.cue && warning && <div className="banner cue">{warning}</div>}
           {hud.groupStatus && <div className="group-chip">{hud.groupStatus}</div>}
 
           <div className="hud right">
@@ -606,8 +685,22 @@ export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX
                   <button className={mode === 'sim' ? 'on' : ''} onClick={() => setTrainer({ mode: 'sim' })} title="Trainer resistance follows the gradient">
                     Gradient
                   </button>
-                  <button className={mode === 'erg' ? 'on' : ''} onClick={() => setTrainer({ mode: 'erg' })} title="Trainer holds a fixed power">
+                  <button className={mode === 'erg' ? 'on' : ''} onClick={toErg} title="Trainer holds a fixed power">
                     ERG
+                  </button>
+                  <button
+                    className={mode === 'hr' ? 'on' : ''}
+                    disabled={mode !== 'hr' && (hud.hr === null || Boolean(init.workout))}
+                    onClick={() => setTrainer({ mode: 'hr' })}
+                    title={
+                      init.workout
+                        ? 'Heart-rate mode works on rides without a workout'
+                        : hud.hr === null
+                          ? 'Connect a heart-rate strap to use heart-rate mode'
+                          : 'Trainer power keeps your heart rate in a band'
+                    }
+                  >
+                    Heart rate
                   </button>
                 </div>
               )}
@@ -617,6 +710,20 @@ export function Ride({ request, onExit, onDevices, onFinish }: Props): React.JSX
                   <span>{settings.trainer.ergWatts} W</span>
                   <button onClick={() => nudge(10)}>+</button>
                 </div>
+              ) : mode === 'hr' ? (
+                init.workout ? (
+                  <span className="hint">Heart-rate mode works on rides without a workout</span>
+                ) : (
+                  <div className="stepper" title="Heart-rate band (↑/↓)">
+                    <button onClick={() => moveBand(-BAND_STEP)} disabled={!band} aria-label="Lower band">
+                      −
+                    </button>
+                    <span>{band ? `${Math.round(band[0])}–${Math.round(band[1])} bpm` : '– bpm'}</span>
+                    <button onClick={() => moveBand(BAND_STEP)} disabled={!band} aria-label="Higher band">
+                      +
+                    </button>
+                  </div>
+                )
               ) : (
                 <div className="stepper" title="How much of the gradient the trainer applies">
                   <button onClick={() => setTrainer({ difficulty: Math.max(0, Math.round((settings.trainer.difficulty - 0.05) * 100) / 100) })}>−</button>
