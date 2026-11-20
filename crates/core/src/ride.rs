@@ -140,6 +140,8 @@ pub struct RideEngine {
     pub rivals: Vec<Rival>,
     /// What the trainer was last asked to hold (None in simulation mode), recorded with each sample.
     pub target_power: Option<f64>,
+    /// The pacer's decision this second; None when not pacing.
+    pub hr_pace: Option<crate::hrpace::PaceSample>,
     pub samples: Vec<FitSample>,
     /// Distance at each whole second of moving time — becomes the next ghost.
     pub trace: Vec<f64>,
@@ -247,6 +249,7 @@ impl RideEngine {
             rivals,
             samples: Vec::new(),
             target_power: None,
+            hr_pace: None,
             trace: vec![0.0],
             climb_times: BTreeMap::new(),
             climb_index: None,
@@ -424,6 +427,7 @@ impl RideEngine {
             hr: self.hr,
             cadence: self.cadence,
             target_power: self.target_power,
+            hr_pace: self.hr_pace,
         });
         self.trace.push(self.ridden);
         self.n += 1;

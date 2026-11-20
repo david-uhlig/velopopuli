@@ -3,6 +3,7 @@ use std::sync::Arc;
 use velopopuli_core::fit::{encode_fit, fit_crc, FitSample, FitSession};
 use velopopuli_core::gamify::{apply_ride, level_for, RideFacts};
 use velopopuli_core::gpx::{build_route, demo_route, parse_gpx, RawPoint, Route, M_PER_DEG};
+use velopopuli_core::hrpace::{PaceSample, PaceState};
 use velopopuli_core::physics::{step_speed, PhysicsParams};
 use velopopuli_core::ride::{GhostTrace, RideEngine, RideInput, RideOptions, RivalKind};
 use velopopuli_core::segments::{Segment, SegmentSource};
@@ -148,7 +149,7 @@ mod fit {
     #[test]
     fn writes_a_file_an_independent_decoder_reads_back() {
         let t0: u64 = 1_768_500_000_000; // 2026-01-15T18:00:00Z
-        let samples: Vec<FitSample> = (0..120)
+        let mut samples: Vec<FitSample> = (0..120)
             .map(|i| FitSample {
                 time: t0 + i * 1000,
                 lat: 46.2 + i as f64 * 1e-5,
@@ -160,8 +161,20 @@ mod fit {
                 hr: (i != 0).then_some(140.0),
                 cadence: Some(88.0),
                 target_power: (i % 2 == 0).then_some(250.0 + i as f64),
+                hr_pace: None,
             })
             .collect();
+        let unpaced = samples.clone();
+        for (i, s) in samples.iter_mut().enumerate().skip(10) {
+            s.hr_pace = Some(PaceSample {
+                state: if i % 2 == 0 { PaceState::Raising } else { PaceState::Easing },
+                warning: None,
+                hr_smooth: (i != 70).then_some(141.4),
+                trend_bpm_min: 1.5,
+                low: 135.0,
+                high: 145.0,
+            });
+        }
         let session = FitSession {
             start_time: t0,
             end_time: t0 + 119_000,
@@ -203,9 +216,22 @@ mod fit {
         assert!(field(recs[61], "target_power").is_none());
         assert_eq!(of_kind(fitparser::profile::MesgNum::DeveloperDataId).len(), 1);
         let desc = of_kind(fitparser::profile::MesgNum::FieldDescription);
-        assert_eq!(desc.len(), 1);
+        assert_eq!(desc.len(), 6);
         assert_eq!(field(desc[0], "field_name").as_deref(), Some("target_power"));
         assert_eq!(field(desc[0], "units").as_deref(), Some("watts"));
+        let names: Vec<_> = desc.iter().map(|d| field(d, "field_name").unwrap()).collect();
+        assert_eq!(names, ["target_power", "hr_pace_state", "hr_smooth", "hr_trend", "hr_band_low", "hr_band_high"]);
+        // Pacing fields: state codes, whole bpm, trend stored x10 and decoded with its scale, absent when not paced or no heart rate.
+        assert_eq!(num(recs[60], "hr_pace_state"), 2.0);
+        assert_eq!(num(recs[61], "hr_pace_state"), 3.0);
+        assert_eq!(num(recs[60], "hr_smooth"), 141.0);
+        assert_eq!(num(recs[60], "hr_band_low"), 135.0);
+        assert_eq!(num(recs[60], "hr_band_high"), 145.0);
+        assert_eq!(field(recs[60], "hr_trend").as_deref(), Some("1.5"));
+        assert!(field(recs[70], "hr_smooth").is_none() && field(recs[70], "hr_trend").is_none());
+        assert!(field(recs[5], "hr_pace_state").is_none() && field(recs[5], "hr_band_low").is_none());
+        let plain = fitparser::from_bytes(&encode_fit(&unpaced, &session)).unwrap();
+        assert_eq!(plain.iter().filter(|r| r.kind() == fitparser::profile::MesgNum::FieldDescription).count(), 1);
         let n = bytes.len();
         assert_eq!(fit_crc(&bytes[..n - 2]), u16::from_le_bytes([bytes[n - 2], bytes[n - 1]]));
         assert!(field(recs[0], "heart_rate").is_none(), "missing HR must be encoded as invalid");

@@ -15,6 +15,8 @@ pub struct FitSample {
     pub cadence: Option<f64>,
     /// Watts the trainer was asked to hold; None when it wasn't holding a target (sim mode).
     pub target_power: Option<f64>,
+    /// The pacer's decision this second; None when not pacing.
+    pub hr_pace: Option<crate::hrpace::PaceSample>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -186,11 +188,37 @@ pub fn encode_fit(samples: &[FitSample], s: &FitSession) -> Vec<u8> {
         &[(3, 0x07, &padded::<16>("target_power")), (8, 0x07, &padded::<8>("watts"))],
         &[],
     );
+    // Pacing fields, only when the ride was paced (same developer data index 0).
+    let paced = samples.iter().any(|s| s.hr_pace.is_some());
+    if paced {
+        let desc = |w: &mut Writer, num: u8, base: u8, name: &str, units: &str, scale: Option<u8>| {
+            let mut fields = vec![(0, T::U8, Some(0.0)), (1, T::U8, Some(num as f64)), (2, T::U8, Some(base as f64)), (14, T::U16, Some(20.0))];
+            if let Some(sc) = scale {
+                fields.push((6, T::U8, Some(sc as f64)));
+            }
+            w.message_ext(if scale.is_some() { 7 } else { 6 }, 206, &fields, &[(3, 0x07, &padded::<16>(name)), (8, 0x07, &padded::<8>(units))], &[]);
+        };
+        desc(&mut w, 1, 0x02, "hr_pace_state", "state", None);
+        desc(&mut w, 2, 0x02, "hr_smooth", "bpm", None);
+        desc(&mut w, 3, 0x83, "hr_trend", "bpm/min", Some(10));
+        desc(&mut w, 4, 0x02, "hr_band_low", "bpm", None);
+        desc(&mut w, 5, 0x02, "hr_band_high", "bpm", None);
+    }
     // event: timer start
     w.message(1, 21, &[(253, T::U32, Some(start)), (0, T::Enum, Some(0.0)), (1, T::Enum, Some(0.0))]);
     for p in samples {
         // 0xffff marks "no target", like the invalid value of any uint16.
         let target = p.target_power.map_or(0xffff, |v| v.round().clamp(0.0, 65534.0) as u16).to_le_bytes();
+        let pace = p.hr_pace;
+        let byte = |v: Option<f64>| v.map_or(0xff, |v| v.round().clamp(0.0, 254.0) as u8);
+        let state = [pace.map_or(0xff, |q| q.state.code())];
+        let smooth = [byte(pace.and_then(|q| q.hr_smooth))];
+        let trend = pace.and_then(|q| q.hr_smooth.map(|_| q.trend_bpm_min)).map_or(0x7fff, |t| (t * 10.0).round().clamp(-32767.0, 32766.0) as i16).to_le_bytes();
+        let band = [byte(pace.map(|q| q.low)), byte(pace.map(|q| q.high))];
+        let mut dev: Vec<Dev> = vec![(0, 0, &target)];
+        if paced {
+            dev.extend([(1, 0, &state[..]), (2, 0, &smooth[..]), (3, 0, &trend[..]), (4, 0, &band[..1]), (5, 0, &band[1..])]);
+        }
         w.message_ext(
             2,
             20,
@@ -206,7 +234,7 @@ pub fn encode_fit(samples: &[FitSample], s: &FitSession) -> Vec<u8> {
                 (7, T::U16, cap(p.power, 65534.0)),
             ],
             &[],
-            &[(0, 0, &target)],
+            &dev,
         );
     }
     // event: timer stop_all

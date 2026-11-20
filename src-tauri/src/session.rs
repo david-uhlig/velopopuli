@@ -16,7 +16,7 @@ use velopopuli_core::fitness::{estimate_ftp, power_curve};
 use velopopuli_core::gamify::{apply_ride, streaks, RideFacts};
 use velopopuli_core::gearing;
 use velopopuli_core::gpx::{build_route, demo_route, parse_gpx, Climb, Route};
-use velopopuli_core::hrpace::{pace_start, HrPacer, PaceInput, PaceState, PaceWarning, START_POWER_S};
+use velopopuli_core::hrpace::{pace_start, HrPacer, PaceInput, PaceSample, PaceState, PaceWarning, START_POWER_S};
 use velopopuli_core::ride::{ClimbResult, RideEngine, RideInput, RideOptions, Rival, RivalKind, SegmentLive, SegmentResult};
 use velopopuli_core::segments::{Segment, SegmentSource};
 use velopopuli_core::types::{PersonalBest, Profile, RideSummary, Settings, TrainerMode};
@@ -687,6 +687,7 @@ fn run(
             if trainer.mode != TrainerMode::Hr || engine.workout.is_some() {
                 pacer = None;
                 pace_hud = None;
+                engine.hr_pace = None;
             } else if second || pacer.is_none() {
                 // The pacer steps once a second; a command after a shift repeats its last target.
                 let cfg = {
@@ -700,6 +701,7 @@ fn run(
                     HrPacer::new(&cfg, start_w, warm_up)
                 });
                 let out = p.step(&cfg, PaceInput { t: (now - began).as_secs_f64(), hr: tel.hr, power: tel.power, cadence: tel.cadence, paused: engine.user_paused || engine.finished });
+                engine.hr_pace = Some(PaceSample { state: out.state, warning: out.warning, hr_smooth: out.hr_smooth, trend_bpm_min: out.trend_bpm_min, low: cfg.low, high: cfg.high });
                 pace_hud = Some(HrPaceHud {
                     watts: out.watts.round(),
                     state: out.state,

@@ -100,6 +100,34 @@ pub enum PaceState {
     NoHr,
 }
 
+impl PaceState {
+    /// Number written to the FIT file: warm-up 0, holding 1, raising 2, easing 3, struggling 4, no heart rate 5.
+    pub fn code(self) -> u8 {
+        match self {
+            PaceState::WarmUp => 0,
+            PaceState::Holding => 1,
+            PaceState::Raising => 2,
+            PaceState::Easing => 3,
+            PaceState::Struggling => 4,
+            PaceState::NoHr => 5,
+        }
+    }
+}
+
+/// The pacer's decision for one second, kept with the ride sample.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaceSample {
+    pub state: PaceState,
+    pub warning: Option<PaceWarning>,
+    /// Smoothed heart rate in bpm, when there was one.
+    pub hr_smooth: Option<f64>,
+    /// Heart-rate trend in bpm per minute.
+    pub trend_bpm_min: f64,
+    /// Heart-rate band in bpm.
+    pub low: f64,
+    pub high: f64,
+}
+
 /// A condition the rider should be told about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

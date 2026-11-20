@@ -46,6 +46,8 @@ devices.json     remembered sensors
 
 Each record also carries a `target_power` developer field (watts, uint16; invalid when the trainer wasn't holding a target), declared by `developer_data_id` and `field_description` messages at the start of the file. Intervals.icu, GoldenCheetah and similar tools can chart it; Strava and Garmin ignore it.
 
+Heart-rate paced rides add five more developer fields to every record (invalid when that second wasn't paced): `hr_pace_state` (uint8: 0 warm-up, 1 holding, 2 raising, 3 easing, 4 struggling, 5 no heart rate), `hr_smooth` (bpm), `hr_trend` (sint16, scale 10, bpm/min), `hr_band_low` and `hr_band_high` (bpm). Rides that weren't paced carry only `target_power`.
+
 ## Secrets
 
 [`secrets.rs`](../../src-tauri/src/secrets.rs): connector credentials and the Home Assistant token.
