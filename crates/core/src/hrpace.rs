@@ -25,8 +25,10 @@ const PREDICT_MIN: f64 = 1.0;
 const STEP_PER_BPM: f64 = 0.0075;
 const STEP_MIN: f64 = 0.01;
 const STEP_MAX: f64 = 0.04;
-/// Easing faster when the smoothed heart rate is already above the band.
+/// Easing doubles its step once the smoothed heart rate has been above the band for `HOT_DWELL_S`.
 const HOT_STEP_FACTOR: f64 = 2.0;
+/// Time above the band before easing doubles, so a brief spike does not over-react.
+const HOT_DWELL_S: f64 = 20.0;
 // 15 s let a fast heart (tau 30 s) oscillate: several steps landed before the first showed.
 const RAISE_COOLDOWN_S: f64 = 30.0;
 const EASE_COOLDOWN_S: f64 = 15.0;
@@ -144,6 +146,7 @@ pub struct HrPacer {
     near_max: bool,
     floor_s: f64,
     ceil_s: f64,
+    hot_s: f64,
 }
 
 /// Returns the reading if it is usable: finite, in a human range, and not a jump from the smoothed value.
@@ -236,6 +239,7 @@ impl HrPacer {
             near_max: false,
             floor_s: 0.0,
             ceil_s: 0.0,
+            hot_s: 0.0,
         }
     }
 
@@ -300,6 +304,7 @@ impl HrPacer {
             self.good_s = 0.0;
             self.floor_s = 0.0;
             self.ceil_s = 0.0;
+            self.hot_s = 0.0;
         }
         let accepted = fresh && !self.no_hr;
         let s = self.smooth.unwrap_or(0.0);
@@ -317,11 +322,14 @@ impl HrPacer {
             if self.cad_low_s >= CADENCE_LOW_S || self.pow_low_s >= POWER_SHORT_S {
                 self.struggling = true;
                 self.cut_s = 0.0;
-                self.warming = false;
             }
         } else if input.cadence.is_none_or(|c| c >= CADENCE_OK) && input.power >= POWER_OK * target {
             self.struggling = false;
             self.cooldown_s = RAISE_COOLDOWN_S;
+        }
+
+        if accepted {
+            self.hot_s = if s > cfg.high { self.hot_s + dt } else { 0.0 };
         }
 
         let hot = accepted && s >= cfg.max_hr - NEAR_MAX_BPM;
@@ -376,7 +384,7 @@ impl HrPacer {
         self.output(trend)
     }
 
-    /// Seconds of warm-up still to go, or `None` once it is over (or there was none).
+    /// Seconds of warm-up still to go, or `None` once it is over (or there was none). Paused while struggling.
     pub fn warmup_left_s(&self, cfg: &PaceConfig) -> Option<f64> {
         self.warming.then(|| (cfg.warmup_s - self.warm_s).max(0.0))
     }
@@ -399,7 +407,7 @@ impl HrPacer {
             if self.watts <= cfg.min_w + EDGE_W {
                 PaceState::Holding
             } else {
-                let hot = if s > cfg.high { HOT_STEP_FACTOR } else { 1.0 };
+                let hot = if self.hot_s >= HOT_DWELL_S { HOT_STEP_FACTOR } else { 1.0 };
                 let w = step_watts(cfg.ftp, predicted - hi) * hot;
                 if self.cooldown_s <= 0.0 {
                     self.watts = clamp_w(cfg, self.watts - w);
