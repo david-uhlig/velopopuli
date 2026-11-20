@@ -59,6 +59,8 @@ struct Tick {
     cadence: Option<f64>,
     paused: bool,
     hr: HrSignal,
+    /// Added to the strap reading only, so the true heart rate is unchanged.
+    hr_offset: f64,
 }
 
 struct Sample {
@@ -75,12 +77,12 @@ fn ride(mut cfg: PaceConfig, mut heart: Heart, warm_up: bool, start_w: f64, secs
     let mut log = Vec::with_capacity(secs);
     for i in 0..secs {
         let t = i as f64;
-        let mut tick = Tick { power: watts, cadence: Some(90.0), paused: false, hr: HrSignal::Heart };
+        let mut tick = Tick { power: watts, cadence: Some(90.0), paused: false, hr: HrSignal::Heart, hr_offset: 0.0 };
         script(t, &mut cfg, &mut tick);
         let true_hr = heart.tick(t, tick.power);
         let n = noise.next();
         let hr = match tick.hr {
-            HrSignal::Heart => Some(true_hr + n),
+            HrSignal::Heart => Some(true_hr + n + tick.hr_offset),
             HrSignal::Missing => None,
             HrSignal::Value(v) => Some(v),
         };
@@ -202,6 +204,49 @@ fn cadence_collapse_stops_raises_and_backs_off() {
         assert!(s.out.watts >= 100.0 - 1e-9, "below the floor: {}", at(s));
     }
     assert_ne!(log[1621].out.state, PaceState::Struggling, "{}", at(&log[1621]));
+}
+
+/// Total watts taken off over `log`, summing every decrease between consecutive samples.
+fn total_cut(log: &[Sample]) -> f64 {
+    log.windows(2).map(|w| (w[0].out.watts - w[1].out.watts).max(0.0)).sum()
+}
+
+#[test]
+fn struggle_pauses_the_warm_up_instead_of_ending_it() {
+    let log = ride(cfg(), Heart::new(60.0), true, 0.0, 700, |t, _, tick| {
+        if t < 15.0 {
+            tick.cadence = Some(40.0);
+            tick.power = 40.0;
+        }
+    });
+    for s in &log[6..15] {
+        assert_eq!(s.out.state, PaceState::Struggling, "{}", at(s));
+    }
+    // The 4 s before the struggle is detected (t=1..4) and 596 s after recovery (t=15..610) make the 600 s.
+    let ended = log.iter().position(|s| s.t >= 15.0 && s.out.state != PaceState::WarmUp).expect("warm-up never ended");
+    assert_eq!(ended, 610, "warm-up ended at the wrong time: {}", at(&log[ended]));
+    for s in &log[15..ended] {
+        assert!(s.out.watts <= 0.7 * cfg().ftp + 1e-9, "warm-up overshot: {}", at(s));
+    }
+}
+
+#[test]
+fn short_heart_rate_spike_does_not_double_the_easing() {
+    let log = ride(cfg(), Heart::new(60.0), true, 0.0, 2000, |t, _, tick| {
+        if (1500.0..1515.0).contains(&t) {
+            tick.hr_offset = 12.0;
+        }
+    });
+    for s in &log[1400..1500] {
+        assert!((135.0..=145.0).contains(&s.hr), "not settled before the spike: {}", at(s));
+    }
+    let cut = total_cut(&log[1499..1560]);
+    assert!(cut <= 2.0 * 0.04 * cfg().ftp * 2.0 + 1e-9, "cut {cut:.1} W over the minute after the spike: {}", at(&log[1559]));
+    for w in log[1499..1560].windows(2) {
+        assert!(w[0].out.watts - w[1].out.watts <= 0.04 * cfg().ftp + 1e-9, "doubled step: {}", at(&w[1]));
+    }
+    let back = log[1680].out.hr_smooth.expect("no heart rate");
+    assert!((135.0..=145.0).contains(&back), "heart rate not back in the band within 3 min: {}", at(&log[1680]));
 }
 
 #[test]
