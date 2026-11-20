@@ -2,6 +2,7 @@
 //! rate settles inside a chosen band. Heart rate answers power slowly and
 //! late, so the controller acts on a short-term prediction and waits between steps.
 
+use crate::fit::FitSample;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -553,4 +554,99 @@ mod tests {
         assert_eq!(p.warmup_left_s(&cfg()), Some(599.0));
         assert_eq!(HrPacer::new(&cfg(), 200.0, false).warmup_left_s(&cfg()), None);
     }
+}
+
+/// Cardiac drift needs at least this many steady paced seconds.
+const DRIFT_MIN_S: usize = 1200;
+
+/// How a paced ride went. Times are in seconds; one sample is one second.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HrPaceSummary {
+    /// Heart-rate band in bpm, as of the last paced second.
+    pub low: f64,
+    pub high: f64,
+    /// Seconds the pacer was running.
+    pub paced_s: f64,
+    /// Paced seconds with the smoothed heart rate inside the band.
+    pub in_band_s: f64,
+    /// Paced seconds with the smoothed heart rate above the band.
+    pub above_s: f64,
+    /// Paced seconds with the smoothed heart rate below the band.
+    pub below_s: f64,
+    /// Seconds spent in each pacer state.
+    pub warm_up_s: f64,
+    pub holding_s: f64,
+    pub raising_s: f64,
+    pub easing_s: f64,
+    pub struggling_s: f64,
+    pub no_hr_s: f64,
+    /// Mean target power in watts over paced seconds that had one.
+    pub avg_target_w: f64,
+    /// Mean power in watts over paced seconds.
+    pub avg_power_w: f64,
+    /// Times a warning appeared or changed.
+    pub warnings: u32,
+    /// Times the pacer began struggling.
+    pub struggles: u32,
+    /// Cardiac drift in percent: how much the watts per heartbeat fell from the first half of the
+    /// steady paced time to the second. Positive means fewer watts per beat later on. None when
+    /// there are fewer than 20 minutes of steady paced time.
+    pub drift_pct: Option<f64>,
+}
+
+fn mean(v: impl Iterator<Item = f64>) -> f64 {
+    let (n, sum) = v.fold((0usize, 0.0), |(n, s), x| (n + 1, s + x));
+    if n == 0 {
+        0.0
+    } else {
+        sum / n as f64
+    }
+}
+
+/// Summarises the paced seconds of a ride; None when it was not paced.
+pub fn summarize(samples: &[FitSample]) -> Option<HrPaceSummary> {
+    let paced: Vec<(&FitSample, PaceSample)> = samples.iter().filter_map(|s| s.hr_pace.map(|p| (s, p))).collect();
+    let last = paced.last()?.1;
+    let mut out = HrPaceSummary { low: last.low, high: last.high, paced_s: paced.len() as f64, ..Default::default() };
+    let mut prev: Option<&PaceSample> = None;
+    for (_, p) in &paced {
+        if let Some(h) = p.hr_smooth {
+            if h < p.low {
+                out.below_s += 1.0;
+            } else if h > p.high {
+                out.above_s += 1.0;
+            } else {
+                out.in_band_s += 1.0;
+            }
+        }
+        let slot = match p.state {
+            PaceState::WarmUp => &mut out.warm_up_s,
+            PaceState::Holding => &mut out.holding_s,
+            PaceState::Raising => &mut out.raising_s,
+            PaceState::Easing => &mut out.easing_s,
+            PaceState::Struggling => &mut out.struggling_s,
+            PaceState::NoHr => &mut out.no_hr_s,
+        };
+        *slot += 1.0;
+        if p.warning.is_some() && prev.map(|q| q.warning) != Some(p.warning) {
+            out.warnings += 1;
+        }
+        if p.state == PaceState::Struggling && prev.map(|q| q.state) != Some(PaceState::Struggling) {
+            out.struggles += 1;
+        }
+        prev = Some(p);
+    }
+    out.avg_target_w = mean(paced.iter().filter_map(|(s, _)| s.target_power));
+    out.avg_power_w = mean(paced.iter().map(|(s, _)| s.power));
+
+    let steady: Vec<(f64, f64)> =
+        paced.iter().filter(|(_, p)| !matches!(p.state, PaceState::WarmUp | PaceState::NoHr)).filter_map(|(s, p)| p.hr_smooth.filter(|h| *h > 0.0 && s.power > 0.0).map(|h| (s.power, h))).collect();
+    if steady.len() >= DRIFT_MIN_S {
+        let (a, b) = steady.split_at(steady.len() / 2);
+        let ef = |half: &[(f64, f64)]| mean(half.iter().map(|x| x.0)) / mean(half.iter().map(|x| x.1));
+        let ef1 = ef(a);
+        out.drift_pct = Some((ef1 - ef(b)) / ef1 * 100.0);
+    }
+    Some(out)
 }

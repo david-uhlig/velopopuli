@@ -198,6 +198,35 @@ export interface RideSummary {
   ftpEstimate?: FtpEstimate
   segmentPrs: string[]
   group: boolean
+  hrPace?: HrPaceSummary
+}
+
+/** How heart-rate pacing went on a ride; times are seconds. */
+export interface HrPaceSummary {
+  /** Heart-rate band in bpm, as of the last paced second. */
+  low: number
+  high: number
+  pacedS: number
+  /** Paced seconds with the smoothed heart rate inside, above and below the band. */
+  inBandS: number
+  aboveS: number
+  belowS: number
+  /** Seconds in each pacer state. */
+  warmUpS: number
+  holdingS: number
+  raisingS: number
+  easingS: number
+  strugglingS: number
+  noHrS: number
+  /** Mean target and actual power in watts over paced seconds. */
+  avgTargetW: number
+  avgPowerW: number
+  /** Times a warning appeared or changed. */
+  warnings: number
+  /** Times the pacer began struggling. */
+  struggles: number
+  /** Cardiac drift in percent; positive means fewer watts per beat later on. Absent under 20 minutes of steady pacing. */
+  driftPct?: number
 }
 
 export interface FtpEstimate {

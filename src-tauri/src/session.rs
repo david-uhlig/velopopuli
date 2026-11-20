@@ -626,6 +626,7 @@ impl Session {
             ftp_estimate,
             segment_prs,
             group: self.group.is_some(),
+            hr_pace: velopopuli_core::hrpace::summarize(&engine.samples),
         };
         let mut rides = rides;
         rides.insert(0, summary.clone());

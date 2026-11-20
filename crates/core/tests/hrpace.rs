@@ -2,7 +2,8 @@
 
 use std::collections::VecDeque;
 
-use velopopuli_core::hrpace::{HrPacer, PaceConfig, PaceInput, PaceOutput, PaceState, PaceWarning};
+use velopopuli_core::fit::FitSample;
+use velopopuli_core::hrpace::{summarize, HrPacer, PaceConfig, PaceInput, PaceOutput, PaceSample, PaceState, PaceWarning};
 
 fn cfg() -> PaceConfig {
     PaceConfig { low: 135.0, high: 145.0, min_w: 100.0, max_w: 262.5, warmup_s: 600.0, ftp: 250.0, max_hr: 190.0 }
@@ -372,4 +373,65 @@ fn states_and_warnings_serialise_in_camel_case() {
     let json = serde_json::to_string(&out).unwrap();
     assert!(json.contains("\"hrSmooth\""), "{json}");
     assert!(json.contains("\"trendBpmMin\""), "{json}");
+}
+
+/// One-second sample; `pace` is the pacer's decision, if any.
+fn fit_sample(power: f64, target: Option<f64>, pace: Option<PaceSample>) -> FitSample {
+    FitSample { time: 0, lat: 0.0, lon: 0.0, ele: 0.0, dist: 0.0, speed: 0.0, power, hr: None, cadence: None, target_power: target, hr_pace: pace }
+}
+
+fn pace(state: PaceState, warning: Option<PaceWarning>, hr: Option<f64>) -> Option<PaceSample> {
+    Some(PaceSample { state, warning, hr_smooth: hr, trend_bpm_min: 0.0, low: 135.0, high: 145.0 })
+}
+
+#[test]
+fn summary_is_none_for_an_unpaced_ride() {
+    assert!(summarize(&[]).is_none());
+    assert!(summarize(&vec![fit_sample(200.0, None, None); 10]).is_none());
+}
+
+#[test]
+fn summary_splits_time_by_band_and_state() {
+    let mut rides = vec![fit_sample(150.0, None, None)];
+    let mut push = |n: usize, state, hr| rides.extend((0..n).map(|_| fit_sample(200.0, Some(210.0), pace(state, None, hr))));
+    push(4, PaceState::WarmUp, Some(120.0));
+    push(3, PaceState::Holding, Some(140.0));
+    push(2, PaceState::Easing, Some(150.0));
+    push(1, PaceState::NoHr, None);
+    let s = summarize(&rides).unwrap();
+    assert_eq!((s.low, s.high, s.paced_s), (135.0, 145.0, 10.0));
+    assert_eq!((s.below_s, s.in_band_s, s.above_s), (4.0, 3.0, 2.0));
+    assert_eq!((s.warm_up_s, s.holding_s, s.raising_s, s.easing_s, s.struggling_s, s.no_hr_s), (4.0, 3.0, 0.0, 2.0, 0.0, 1.0));
+    assert_eq!((s.avg_target_w, s.avg_power_w), (210.0, 200.0));
+    assert_eq!(s.drift_pct, None);
+}
+
+#[test]
+fn summary_counts_warnings_and_struggles_once_per_onset() {
+    let w = Some(PaceWarning::NearMaxHr);
+    let seq = [
+        (PaceState::Holding, None),
+        (PaceState::Struggling, w),
+        (PaceState::Struggling, w),
+        (PaceState::Holding, None),
+        (PaceState::Struggling, Some(PaceWarning::HighAtFloor)),
+        (PaceState::Struggling, Some(PaceWarning::HighAtFloor)),
+    ];
+    let rides: Vec<FitSample> = seq.iter().map(|(st, wa)| fit_sample(200.0, None, pace(*st, *wa, Some(140.0)))).collect();
+    let s = summarize(&rides).unwrap();
+    assert_eq!((s.struggles, s.warnings), (2, 2));
+    assert_eq!(s.avg_target_w, 0.0);
+}
+
+#[test]
+fn drift_needs_twenty_steady_minutes_and_is_positive_when_watts_fall() {
+    // Constant heart rate while power falls from 200 W to 180 W.
+    let ride = |n: usize| -> Vec<FitSample> { (0..n).map(|i| fit_sample(200.0 - 20.0 * i as f64 / n as f64, Some(200.0), pace(PaceState::Holding, None, Some(140.0)))).collect() };
+    assert_eq!(summarize(&ride(1199)).unwrap().drift_pct, None);
+    let d = summarize(&ride(1800)).unwrap().drift_pct.expect("long enough");
+    assert!(d > 5.0 && d < 7.0, "{d}");
+    // Warm-up seconds do not count towards the 1200.
+    let mut mixed = ride(1000);
+    mixed.extend((0..300).map(|_| fit_sample(200.0, None, pace(PaceState::WarmUp, None, Some(140.0)))));
+    assert_eq!(summarize(&mixed).unwrap().drift_pct, None);
 }

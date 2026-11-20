@@ -424,6 +424,9 @@ pub struct RideSummary {
     pub segment_prs: Vec<String>,
     #[serde(default)]
     pub group: bool,
+    /// How heart-rate pacing went, when the ride was paced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hr_pace: Option<crate::hrpace::HrPaceSummary>,
 }
 
 /// One upload of a ride to a connector.
