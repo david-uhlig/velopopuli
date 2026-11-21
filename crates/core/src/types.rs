@@ -145,7 +145,7 @@ impl Default for TrainerSettings {
             hr_high: 0.0,
             hr_min_watts: 0.0,
             hr_max_watts: 0.0,
-            hr_warmup_min: 8.0,
+            hr_warmup_min: 14.0,
         }
     }
 }
@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn pace_config_derives_unset_values_from_the_rider() {
-        assert_eq!(pace(Default::default()), PaceConfig { low: 120.0, high: 139.0, min_w: 80.0, max_w: 210.0, warmup_s: 480.0, ftp: 200.0, max_hr: 185.0 });
+        assert_eq!(pace(Default::default()), PaceConfig { low: 120.0, high: 139.0, min_w: 80.0, max_w: 210.0, warmup_s: 840.0, ftp: 200.0, max_hr: 185.0 });
     }
 
     #[test]
@@ -530,7 +530,7 @@ mod tests {
         assert_eq!(old.mode, TrainerMode::Erg);
         assert_eq!(old.difficulty, 0.5);
         assert_eq!(old.hr_low, 0.0);
-        assert_eq!(old.hr_warmup_min, 8.0);
+        assert_eq!(old.hr_warmup_min, 14.0);
         let hr: TrainerSettings = serde_json::from_str(r#"{"mode":"hr","hrLow":130}"#).unwrap();
         assert_eq!(hr.mode, TrainerMode::Hr);
         assert_eq!(hr.hr_low, 130.0);

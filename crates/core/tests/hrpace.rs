@@ -121,7 +121,7 @@ fn warm_up_reaches_the_band_without_overshooting() {
         assert_eq!(log[0].out.watts, 125.0, "tau {tau}: {}", at(&log[0]));
         assert_eq!(log[0].out.state, PaceState::WarmUp, "tau {tau}: {}", at(&log[0]));
         for s in log.iter().filter(|s| s.out.state == PaceState::WarmUp) {
-            assert!(s.out.watts <= 175.0 + 1e-9, "tau {tau}: warm-up overshot: {}", at(s));
+            assert!(s.out.watts <= 0.775 * 250.0 + 1e-9, "tau {tau}: warm-up overshot: {}", at(s));
         }
         let first = log.iter().find(|s| s.out.state != PaceState::WarmUp).unwrap();
         assert!(first.t <= 601.0, "tau {tau}: still warming up: {}", at(first));
@@ -213,7 +213,9 @@ fn total_cut(log: &[Sample]) -> f64 {
 
 #[test]
 fn struggle_pauses_the_warm_up_instead_of_ending_it() {
-    let log = ride(cfg(), Heart::new(60.0), true, 0.0, 700, |t, _, tick| {
+    // A heart that stays under the band, so the warm-up clock (not the band floor) ends the warm-up.
+    let heart = Heart { k: 0.2, ..Heart::new(60.0) };
+    let log = ride(cfg(), heart, true, 0.0, 700, |t, _, tick| {
         if t < 15.0 {
             tick.cadence = Some(40.0);
             tick.power = 40.0;
@@ -226,8 +228,51 @@ fn struggle_pauses_the_warm_up_instead_of_ending_it() {
     let ended = log.iter().position(|s| s.t >= 15.0 && s.out.state != PaceState::WarmUp).expect("warm-up never ended");
     assert_eq!(ended, 610, "warm-up ended at the wrong time: {}", at(&log[ended]));
     for s in &log[15..ended] {
-        assert!(s.out.watts <= 0.7 * cfg().ftp + 1e-9, "warm-up overshot: {}", at(s));
+        assert!(s.out.watts <= 0.775 * cfg().ftp + 1e-9, "warm-up overshot: {}", at(s));
     }
+}
+
+#[test]
+fn warm_up_ramp_takes_three_minutes_then_holds() {
+    let heart = Heart { k: 0.1, ..Heart::new(60.0) };
+    let log = ride(PaceConfig { warmup_s: 840.0, ..cfg() }, heart, true, 0.0, 300, settled);
+    let target = 0.775 * 250.0;
+    assert!((log[0].out.watts - 125.0).abs() < 1e-9, "{}", at(&log[0]));
+    assert!((log[90].out.watts - 0.5 * (125.0 + target)).abs() < 1e-6, "halfway up the ramp: {}", at(&log[90]));
+    for s in &log[180..300] {
+        assert_eq!(s.out.state, PaceState::WarmUp, "{}", at(s));
+        assert!((s.out.watts - target).abs() < 1e-9, "not held at 0.775 FTP: {}", at(s));
+    }
+}
+
+#[test]
+fn short_warm_up_completes_its_ramp_in_its_own_length() {
+    let heart = Heart { k: 0.1, ..Heart::new(60.0) };
+    let log = ride(PaceConfig { warmup_s: 120.0, ..cfg() }, heart, true, 0.0, 125, settled);
+    assert!((log[60].out.watts - 0.5 * (125.0 + 193.75)).abs() < 1e-6, "{}", at(&log[60]));
+    let expected = 250.0 * (0.5 + 0.275 * 119.0 / 120.0);
+    assert!((log[119].out.watts - expected).abs() < 1e-9, "{}", at(&log[119]));
+    assert!(log[119].out.watts > 193.0 && log[119].out.watts < 193.75, "{}", at(&log[119]));
+}
+
+#[test]
+fn warm_up_ends_at_the_band_floor_not_below_it() {
+    let below = ride(cfg(), Heart::new(60.0), true, 0.0, 300, |_, _, tick| tick.hr = HrSignal::Value(134.0));
+    assert!(below.iter().all(|s| s.out.state == PaceState::WarmUp), "ended 1 bpm under the floor: {}", at(&below[299]));
+    let at_floor = ride(cfg(), Heart::new(60.0), true, 0.0, 300, |_, _, tick| tick.hr = HrSignal::Value(135.0));
+    assert_ne!(at_floor[0].out.state, PaceState::WarmUp, "{}", at(&at_floor[0]));
+}
+
+#[test]
+fn raise_waits_while_a_rising_heart_rate_is_about_to_reach_the_band() {
+    let heart_at = |t: f64| 126.0 + t * 2.0 / 60.0;
+    let rising = ride(cfg(), Heart::new(60.0), false, 200.0, 100, |t, _, tick| tick.hr = HrSignal::Value(heart_at(t)));
+    assert_eq!(rising[50].out.state, PaceState::Holding, "{}", at(&rising[50]));
+    assert!(rising[50].out.trend_bpm_min > 1.5, "{}", at(&rising[50]));
+    no_increase(&rising, 20, 100);
+
+    let flat = ride(cfg(), Heart::new(60.0), false, 200.0, 100, |_, _, tick| tick.hr = HrSignal::Value(126.0));
+    assert!(flat[20..100].windows(2).any(|w| w[1].out.watts > w[0].out.watts + 1e-9), "no raise with a flat heart rate: {}", at(&flat[99]));
 }
 
 #[test]

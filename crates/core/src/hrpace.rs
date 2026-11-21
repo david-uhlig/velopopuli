@@ -21,6 +21,8 @@ const TREND_MIN_SPAN_S: f64 = 20.0;
 const MARGIN_MAX_BPM: f64 = 3.0;
 /// How far ahead the trend is extrapolated when predicting heart rate.
 const PREDICT_MIN: f64 = 1.0;
+/// A raise waits while the heart-rate trend, projected this far ahead, already reaches the band: much of heart rate's answer to power is slow.
+const RAISE_LOOKAHEAD_MIN: f64 = 8.0;
 /// Step size per bpm of predicted error, as a fraction of FTP.
 const STEP_PER_BPM: f64 = 0.0075;
 const STEP_MIN: f64 = 0.01;
@@ -32,11 +34,11 @@ const HOT_DWELL_S: f64 = 20.0;
 // 15 s let a fast heart (tau 30 s) oscillate: several steps landed before the first showed.
 const RAISE_COOLDOWN_S: f64 = 30.0;
 const EASE_COOLDOWN_S: f64 = 15.0;
-/// Warm-up ramp, as fractions of FTP.
+/// Warm-up ramp, as fractions of FTP: from `WARM_FROM` up to `WARM_TO`, then held.
 const WARM_FROM: f64 = 0.5;
-const WARM_TO: f64 = 0.7;
-/// Warm-up ends once the smoothed heart rate is this close to the band floor.
-const WARM_EXIT_BPM: f64 = 3.0;
+const WARM_TO: f64 = 0.775;
+/// Seconds the warm-up ramp takes (or the whole warm-up, if it is shorter).
+const WARM_RAMP_S: f64 = 180.0;
 const CADENCE_LOW: f64 = 60.0;
 const CADENCE_LOW_S: f64 = 5.0;
 const CADENCE_OK: f64 = 70.0;
@@ -213,7 +215,7 @@ pub fn pace_start(cfg: &PaceConfig, elapsed_s: f64, hr: Option<f64>, recent_powe
 }
 
 impl HrPacer {
-    /// Starts a session. A warm-up ramps from half FTP and ignores `start_w`;
+    /// Starts a session. A warm-up ramps from half FTP to three quarters of it and ignores `start_w`;
     /// otherwise the controller holds `start_w` until the heart rate says otherwise.
     pub fn new(cfg: &PaceConfig, start_w: f64, warm_up: bool) -> Self {
         Self {
@@ -363,8 +365,10 @@ impl HrPacer {
             }
         } else if self.warming {
             self.warm_s += dt;
-            if s < cfg.low - WARM_EXIT_BPM && self.warm_s < cfg.warmup_s {
-                self.watts = clamp_w(cfg, cfg.ftp * (WARM_FROM + (WARM_TO - WARM_FROM) * (self.warm_s / cfg.warmup_s).min(1.0)));
+            if s < cfg.low && self.warm_s < cfg.warmup_s {
+                let ramp_s = WARM_RAMP_S.min(cfg.warmup_s);
+                let frac = if ramp_s > 0.0 { (self.warm_s / ramp_s).min(1.0) } else { 1.0 };
+                self.watts = clamp_w(cfg, cfg.ftp * (WARM_FROM + (WARM_TO - WARM_FROM) * frac));
                 PaceState::WarmUp
             } else {
                 self.warming = false;
@@ -394,7 +398,7 @@ impl HrPacer {
         let (lo, hi) = inner_band(cfg.low, cfg.high);
         let predicted = s + trend * PREDICT_MIN;
         if predicted < lo {
-            if self.raise_lock_s > 0.0 || self.watts >= cfg.max_w - EDGE_W {
+            if self.raise_lock_s > 0.0 || self.watts >= cfg.max_w - EDGE_W || s + trend * RAISE_LOOKAHEAD_MIN >= lo {
                 PaceState::Holding
             } else {
                 if self.cooldown_s <= 0.0 {

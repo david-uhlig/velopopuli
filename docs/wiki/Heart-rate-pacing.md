@@ -24,13 +24,13 @@ Heart-rate mode is remembered for your next ride, as ERG is. If no heart rate ar
 
 ### The warm-up
 
-In the first minute of a ride — or when your heart rate is more than 15 bpm below the band, or you weren't pedalling — heart-rate mode starts with a gentle warm-up: the power climbs slowly from half your FTP towards 70% of it, and the tile counts down (*Warming up 7:12*). The warm-up ends as soon as your heart rate is within 3 bpm of the bottom of the band, or when its time is up: 8 minutes unless you change it.
+In the first minute of a ride — or when your heart rate is more than 15 bpm below the band, or you weren't pedalling — heart-rate mode starts with a gentle warm-up: the power climbs from half your FTP to about three quarters of it over 3 minutes, then holds there, and the tile counts down (*Warming up 7:12*). The warm-up ends when your heart rate reaches the bottom of the band, or when its time is up: 14 minutes unless you change it.
 
 Switched on later in a ride, while you're pedalling and your heart rate isn't far below the band, it skips the warm-up and starts from the power you've been riding at.
 
 ## How it holds the band
 
-Your heart answers a change of effort slowly: a minute or two passes before a harder or easier effort shows in full. So heart-rate mode doesn't chase every beat. Once a second it looks at where your heart rate is heading, and when it's about to leave the band it changes the power by a small step — 1–4% of your FTP, and bigger steps down when you're already above the band. Then it waits before changing again: 15 seconds after easing off, 30 seconds after raising. It aims up to 3 bpm inside each edge of the band, so small wobbles don't move the power at all.
+Your heart answers a change of effort slowly: a minute or two passes before a harder or easier effort shows in full. So heart-rate mode doesn't chase every beat. Once a second it looks at where your heart rate is heading, and when it's about to leave the band it changes the power by a small step — 1–4% of your FTP, and bigger steps down when you're already above the band. Then it waits before changing again: 15 seconds after easing off, 30 seconds after raising. It doesn't raise the power while your heart rate is still climbing towards the band on its own. It aims up to 3 bpm inside each edge of the band, so small wobbles don't move the power at all.
 
 On a long ride your heart rate tends to drift up at the same power. Heart-rate mode answers by bringing the power down.
 
@@ -61,7 +61,7 @@ The power never goes outside your limits (**Lowest power** and **Highest power**
 | **Band, low** and **Band, high** | 65% and 75% of your max heart rate (120–139 bpm with the default of 185) | The band to hold. If the two are the wrong way round, or less than 4 bpm apart, VeloPopuli puts them in order; the top is never above your max heart rate. |
 | **Lowest power** | 40% of your FTP | The trainer never goes below this. |
 | **Highest power** | 105% of your FTP | The trainer never goes above this. |
-| **Warm-up** | — (8 minutes to start with) | The longest warm-up, up to 30 minutes. It ends sooner once your heart rate is up; 0 skips it. |
+| **Warm-up** | — (14 minutes to start with) | The longest warm-up, up to 30 minutes. It ends sooner once your heart rate is up; 0 skips it. |
 
 ## When things go wrong
 
