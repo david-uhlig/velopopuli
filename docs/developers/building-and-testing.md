@@ -42,6 +42,8 @@ The page has no unit tests. `npx tsc --noEmit` type-checks it, and the smoke har
 
 A good test for the core builds a small route or world in code and checks one fact about it. See `crates/core/tests/velodrome.rs` for a short example.
 
+To try a change to the heart-rate pacer on a real ride, replay a FIT file recorded in heart-rate mode: `cargo run -p velopopuli-core --release --example hrpace_replay -- ride.fit`. It fits a model of that rider's heart to the ride and rides it again with several pacer settings; `--sweep` writes a CSV over a grid of them.
+
 ## The smoke harness
 
 A debug build can run itself: open a screen or start a ride, wait, save a picture and the text on screen, and quit. Most visual and end-to-end checking has been done this way. You can see a change without clicking through the app, and the README and wiki screenshots are taken with it.

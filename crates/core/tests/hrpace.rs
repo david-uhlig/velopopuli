@@ -276,6 +276,27 @@ fn raise_waits_while_a_rising_heart_rate_is_about_to_reach_the_band() {
 }
 
 #[test]
+fn a_wiggle_in_mid_band_does_not_move_the_target() {
+    // Heart rate at the middle of the band, then a ±1.5 bpm wiggle every two minutes: its trend
+    // projects past both edges of the inner band, but the heart rate itself stays well inside.
+    let wiggle = |pacer: HrPacer| {
+        let mut p = pacer;
+        (0..1200)
+            .map(|i| {
+                let t = i as f64;
+                let hr = 140.0 + if t >= 300.0 { 1.5 * (2.0 * std::f64::consts::PI * (t - 300.0) / 120.0).sin() } else { 0.0 };
+                p.step(&cfg(), PaceInput { t, hr: Some(hr), power: 180.0, cadence: Some(90.0), paused: false }).watts
+            })
+            .collect::<Vec<f64>>()
+    };
+    let gated = wiggle(HrPacer::new(&cfg(), 180.0, false));
+    assert!(gated.iter().all(|w| *w == 180.0), "the target moved: {:?}", gated.iter().find(|w| **w != 180.0));
+    // Without the gate the same wiggle moves the target back and forth.
+    let ungated = wiggle(HrPacer::new(&cfg(), 180.0, false).with_edge_gate(f64::INFINITY));
+    assert!(ungated.windows(2).filter(|w| w[1] != w[0]).count() >= 4, "the wiggle should have moved an ungated pacer");
+}
+
+#[test]
 fn short_heart_rate_spike_does_not_double_the_easing() {
     let log = ride(cfg(), Heart::new(60.0), true, 0.0, 2000, |t, _, tick| {
         if (1500.0..1515.0).contains(&t) {
@@ -370,7 +391,8 @@ fn pause_freezes_and_resume_waits_before_raising() {
         assert_eq!(s.out.state, before.state, "state changed while paused: {}", at(s));
     }
     no_increase(&log, 1559, 1590);
-    assert!(log[1590..1800].windows(2).any(|w| w[1].out.watts > w[0].out.watts + 1e-9), "no raise after the resume lock: {}", at(&log[1799]));
+    // The first raise may land on the very second the lock ends.
+    assert!(log[1589..1800].windows(2).any(|w| w[1].out.watts > w[0].out.watts + 1e-9), "no raise after the resume lock: {}", at(&log[1799]));
     for s in &log[2160..2400] {
         assert!((135.0..=145.0).contains(&s.hr), "{}", at(s));
     }

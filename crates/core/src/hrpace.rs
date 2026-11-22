@@ -23,6 +23,11 @@ const MARGIN_MAX_BPM: f64 = 3.0;
 const PREDICT_MIN: f64 = 1.0;
 /// A raise waits while the heart-rate trend, projected this far ahead, already reaches the band: much of heart rate's answer to power is slow.
 const RAISE_LOOKAHEAD_MIN: f64 = 8.0;
+/// A move led by the trend alone (heart rate still inside the inner band) waits until the smoothed
+/// heart rate is within this many bpm of the edge it is heading for: a short wiggle in mid-band
+/// projects past the edge but settles by itself. Replayed on two real rides (examples/hrpace_replay.rs),
+/// 0.5 bpm moved the target about 57 times a ride instead of about 120, with the same time in band.
+const EDGE_GATE_BPM: f64 = 0.5;
 /// Step size per bpm of predicted error, as a fraction of FTP.
 const STEP_PER_BPM: f64 = 0.0075;
 const STEP_MIN: f64 = 0.01;
@@ -33,7 +38,9 @@ const HOT_STEP_FACTOR: f64 = 2.0;
 const HOT_DWELL_S: f64 = 20.0;
 // 15 s let a fast heart (tau 30 s) oscillate: several steps landed before the first showed.
 const RAISE_COOLDOWN_S: f64 = 30.0;
-const EASE_COOLDOWN_S: f64 = 15.0;
+// The same goes for easing. On real rides 15 s stacked two or three eases before the first showed
+// (about 15 s dead time plus a 30 s lag) and dug 30-40 W dips; 30 s kept more time in the band.
+const EASE_COOLDOWN_S: f64 = 30.0;
 /// Warm-up ramp, as fractions of FTP: from `WARM_FROM` up to `WARM_TO`, then held.
 const WARM_FROM: f64 = 0.5;
 const WARM_TO: f64 = 0.775;
@@ -149,6 +156,9 @@ pub struct HrPacer {
     floor_s: f64,
     ceil_s: f64,
     hot_s: f64,
+    edge_gate_bpm: f64,
+    trend_window_s: f64,
+    ease_cooldown_s: f64,
 }
 
 /// Returns the reading if it is usable: finite, in a human range, and not a jump from the smoothed value.
@@ -242,7 +252,26 @@ impl HrPacer {
             floor_s: 0.0,
             ceil_s: 0.0,
             hot_s: 0.0,
+            edge_gate_bpm: EDGE_GATE_BPM,
+            trend_window_s: TREND_WINDOW_S,
+            ease_cooldown_s: EASE_COOLDOWN_S,
         }
+    }
+
+    /// For replays and tuning (examples/hrpace_replay.rs): changes how close to the inner band's edge the smoothed heart rate must be
+    /// before the trend alone may move the target. `f64::INFINITY` turns the gate off.
+    #[doc(hidden)]
+    pub fn with_edge_gate(mut self, bpm: f64) -> Self {
+        self.edge_gate_bpm = bpm;
+        self
+    }
+
+    /// For replays and tuning (examples/hrpace_replay.rs): the window the heart-rate trend is fitted over, and the wait between eases.
+    #[doc(hidden)]
+    pub fn with_timing(mut self, trend_window_s: f64, ease_cooldown_s: f64) -> Self {
+        self.trend_window_s = trend_window_s;
+        self.ease_cooldown_s = ease_cooldown_s;
+        self
     }
 
     /// Advances the controller by one input and returns the target to set now.
@@ -313,7 +342,7 @@ impl HrPacer {
         if accepted {
             self.history.push_back((input.t, s));
         }
-        while self.history.front().is_some_and(|&(t0, _)| t0 < input.t - TREND_WINDOW_S) {
+        while self.history.front().is_some_and(|&(t0, _)| t0 < input.t - self.trend_window_s) {
             self.history.pop_front();
         }
         let trend = slope_per_min(&self.history);
@@ -397,8 +426,10 @@ impl HrPacer {
     fn control(&mut self, cfg: &PaceConfig, s: f64, trend: f64) -> PaceState {
         let (lo, hi) = inner_band(cfg.low, cfg.high);
         let predicted = s + trend * PREDICT_MIN;
+        // With the smoothed heart rate still well inside the inner band, the trend alone doesn't move the target.
+        let gate = self.edge_gate_bpm.min((hi - lo) / 2.0);
         if predicted < lo {
-            if self.raise_lock_s > 0.0 || self.watts >= cfg.max_w - EDGE_W || s + trend * RAISE_LOOKAHEAD_MIN >= lo {
+            if self.raise_lock_s > 0.0 || self.watts >= cfg.max_w - EDGE_W || s + trend * RAISE_LOOKAHEAD_MIN >= lo || s > lo + gate {
                 PaceState::Holding
             } else {
                 if self.cooldown_s <= 0.0 {
@@ -408,14 +439,14 @@ impl HrPacer {
                 PaceState::Raising
             }
         } else if predicted > hi {
-            if self.watts <= cfg.min_w + EDGE_W {
+            if self.watts <= cfg.min_w + EDGE_W || s < hi - gate {
                 PaceState::Holding
             } else {
                 let hot = if self.hot_s >= HOT_DWELL_S { HOT_STEP_FACTOR } else { 1.0 };
                 let w = step_watts(cfg.ftp, predicted - hi) * hot;
                 if self.cooldown_s <= 0.0 {
                     self.watts = clamp_w(cfg, self.watts - w);
-                    self.cooldown_s = EASE_COOLDOWN_S;
+                    self.cooldown_s = self.ease_cooldown_s;
                 }
                 PaceState::Easing
             }

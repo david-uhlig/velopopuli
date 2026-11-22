@@ -30,7 +30,7 @@ Switched on later in a ride, while you're pedalling and your heart rate isn't fa
 
 ## How it holds the band
 
-Your heart answers a change of effort slowly: a minute or two passes before a harder or easier effort shows in full. So heart-rate mode doesn't chase every beat. Once a second it looks at where your heart rate is heading, and when it's about to leave the band it changes the power by a small step — 1–4% of your FTP, and bigger steps down when you're already above the band. Then it waits before changing again: 15 seconds after easing off, 30 seconds after raising. It doesn't raise the power while your heart rate is still climbing towards the band on its own. It aims up to 3 bpm inside each edge of the band, so small wobbles don't move the power at all.
+Your heart answers a change of effort slowly: a minute or two passes before a harder or easier effort shows in full. So heart-rate mode doesn't chase every beat. Once a second it looks at where your heart rate is heading, and when it's about to leave the band it changes the power by a small step — 1–4% of your FTP, and bigger steps down when you're already above the band. Then it waits 30 seconds before changing again, so it sees what the last change did. It doesn't raise the power while your heart rate is still climbing towards the band on its own. It aims up to 3 bpm inside each edge of the band, and while your heart rate is in the middle of that, a brief rise or dip doesn't move the power: it has to come close to an edge first.
 
 On a long ride your heart rate tends to drift up at the same power. Heart-rate mode answers by bringing the power down.
 

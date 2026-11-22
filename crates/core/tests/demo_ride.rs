@@ -109,7 +109,9 @@ fn default_rider_warms_up_settles_in_the_band_and_drifts() {
     }
     let (early, late) = (sec(&log, 300), sec(&log, 1800));
     assert!(late.drift >= 7.0, "too little drift: {}", at(late));
-    assert!(late.hr >= early.hr + 4.0, "drift did not raise the heart rate: {} (from {})", at(late), at(early));
+    // The pacer answers drift with less power, keeping the heart rate where it was.
+    assert!(late.watts <= early.watts - 5.0, "drift did not lower the power: {} (from {})", at(late), at(early));
+    assert!((late.hr - early.hr).abs() <= 4.0, "heart rate wandered with drift: {} (from {})", at(late), at(early));
 }
 
 #[test]
@@ -126,14 +128,14 @@ fn an_hour_of_drift_lowers_the_power() {
 fn band_change_pause_and_erg_and_back() {
     let log = ride(1800, None, |t, cfg, tick| {
         if t >= 900.0 {
-            cfg.low = 130.0;
-            cfg.high = 149.0;
+            cfg.low = 138.0;
+            cfg.high = 152.0;
         }
         tick.paused = (1200.0..1260.0).contains(&t);
         tick.erg = (1400.0..1500.0).contains(&t);
     });
     // A higher band: the pacer raises the power and the heart rate follows within four minutes.
-    assert!(log[899..1140].iter().any(|s| s.hr >= 130.0), "never reached the new band: {}", at(sec(&log, 1140)));
+    assert!(log[899..1140].iter().any(|s| s.hr >= 138.0), "never reached the new band: {}", at(sec(&log, 1140)));
     assert!(sec(&log, 1199).watts > sec(&log, 899).watts, "{} (from {})", at(sec(&log, 1199)), at(sec(&log, 899)));
     // Paused: the target holds.
     for s in &log[1199..1259] {
@@ -150,7 +152,7 @@ fn band_change_pause_and_erg_and_back() {
     assert_ne!(state(back), PaceState::WarmUp, "{}", at(back));
     assert!((back.watts - erg).abs() <= 15.0, "{}", at(back));
     for s in &log[1499..] {
-        assert!((130.0..=149.0).contains(&s.hr), "out of band: {}", at(s));
+        assert!((138.0..=152.0).contains(&s.hr), "out of band: {}", at(s));
         assert_eq!(s.out.unwrap().warning, None, "{}", at(s));
     }
 }
